@@ -6461,9 +6461,9 @@ nsDisplaySVGEffects::~nsDisplaySVGEffects()
 #endif
 
 nsDisplayVR::nsDisplayVR(nsDisplayListBuilder* aBuilder, nsIFrame* aFrame,
-                         nsDisplayList* aList, mozilla::gfx::VRDeviceProxy* aHMD)
+                         nsDisplayList* aList, uint32_t aVRDeviceID)
   : nsDisplayOwnLayer(aBuilder, aFrame, aList)
-  , mHMD(aHMD)
+  , mVRDeviceID(aVRDeviceID)
 {
 }
 
@@ -6479,8 +6479,10 @@ nsDisplayVR::BuildLayer(nsDisplayListBuilder* aBuilder,
     BuildContainerLayerFor(aBuilder, aManager, mFrame, this, &mList,
                            newContainerParameters, nullptr, flags);
 
-  container->SetVRDeviceID(mHMD->GetDeviceInfo().GetDeviceID());
-  container->SetInputFrameID(mHMD->GetSensorState().inputFrameID);
+  container->SetVRDeviceID(mVRDeviceID);
+  //container->SetInputFrameID(mHMD->GetSensorState().inputFrameID);
+  // FIXME
+  // kip says we can use container->SetInputFrameID(VRManagerChild::GetInputFrameID());
   container->SetUserData(nsIFrame::LayerIsPrerenderedDataKey(),
                          /*the value is irrelevant*/nullptr);
 

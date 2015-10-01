@@ -46,7 +46,7 @@ HMDInfoCardboard::HMDInfoCardboard()
   mDeviceInfo.mScreenRect.y = 0;
   mDeviceInfo.mScreenRect.width = 1920;
   mDeviceInfo.mScreenRect.height = 1080;
-  mDeviceInfo.mIsFakeScreen = true;
+  mDeviceInfo.mIsFakeScreen = false;
 }
 
 

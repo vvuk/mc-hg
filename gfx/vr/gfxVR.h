@@ -7,8 +7,10 @@
 #define GFX_VR_H
 
 #include "nsTArray.h"
+#include "nsID.h"
 #include "nsString.h"
 #include "nsCOMPtr.h"
+#include "nsIScreen.h"
 #include "mozilla/RefPtr.h"
 
 #include "mozilla/gfx/2D.h"
@@ -104,6 +106,8 @@ struct VRDeviceInfo
   const VRFieldOfView& GetEyeFOV(uint32_t whichEye) const { return mEyeFOV[whichEye]; }
   bool GetUseMainThreadOrientation() const { return mUseMainThreadOrientation; }
 
+  const nsID& GetVsyncSourceID() const { return mVsyncSourceID; }
+
   enum Eye {
     Eye_Left,
     Eye_Right,
@@ -129,7 +133,7 @@ struct VRDeviceInfo
   bool mIsFakeScreen;
   bool mUseMainThreadOrientation;
 
-
+  nsID mVsyncSourceID;
 
   bool operator==(const VRDeviceInfo& other) const {
     return mType == other.mType &&
@@ -149,7 +153,8 @@ struct VRDeviceInfo
            mEyeTranslation[0] == other.mEyeTranslation[0] &&
            mEyeTranslation[1] == other.mEyeTranslation[1] &&
            mEyeProjectionMatrix[0] == other.mEyeProjectionMatrix[0] &&
-           mEyeProjectionMatrix[1] == other.mEyeProjectionMatrix[1];
+           mEyeProjectionMatrix[1] == other.mEyeProjectionMatrix[1] &&
+           mVsyncSourceID == other.mVsyncSourceID;
   }
 
   bool operator!=(const VRDeviceInfo& other) const {
@@ -269,6 +274,10 @@ public:
 
   virtual void ZeroSensor() = 0;
 
+  // The nsIScreen for this device -- really just the boundaries, will
+  // likely be a fake screen.
+  nsIScreen* GetScreen();
+
   // if rendering is offloaded
   virtual VRHMDRenderingSupport *GetRenderingSupport() { return nullptr; }
 
@@ -288,6 +297,9 @@ protected:
   VRHMDConfiguration mConfiguration;
   VRDeviceInfo mDeviceInfo;
   VRDistortionMesh mDistortionMesh[VRDeviceInfo::NumEyes];
+  nsCOMPtr<nsIScreen> mScreen;
+
+  static already_AddRefed<nsIScreen> MakeFakeScreen(const IntRect& aScreenRect);
 };
 
 class VRHMDManager {

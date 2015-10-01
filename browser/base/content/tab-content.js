@@ -644,7 +644,11 @@ var DOMFullscreenHandler = {
   handleEvent: function(aEvent) {
     switch (aEvent.type) {
       case "MozDOMFullscreen:Request": {
-        sendAsyncMessage("DOMFullscreen:Request");
+        let data = {
+          // will be 0 if not VR
+          vrDeviceID: this._windowUtils.vrHMDDeviceID
+        };
+        sendAsyncMessage("DOMFullscreen:Request", data);
         break;
       }
       case "MozDOMFullscreen:NewOrigin": {

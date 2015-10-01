@@ -239,7 +239,6 @@ SoftwareVsyncSource::SoftwareVsyncSource(const nsID& aSourceID, double aInterval
   , mCurrentVsyncTask(nullptr)
   , mVsyncEnabled(false)
 {
-  MOZ_ASSERT(NS_IsMainThread());
   mVsyncInterval = mozilla::TimeDuration::FromMilliseconds(aInterval);
   mVsyncThread = new base::Thread("SoftwareVsyncThread");
   MOZ_RELEASE_ASSERT(mVsyncThread->Start(), "Could not start software vsync thread");
@@ -299,7 +298,6 @@ SoftwareVsyncSource::InternalDisableVsync()
 bool
 SoftwareVsyncSource::IsVsyncEnabled()
 {
-  MOZ_ASSERT(NS_IsMainThread());
   return mVsyncEnabled;
 }
 

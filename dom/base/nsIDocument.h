@@ -1204,9 +1204,12 @@ public:
    * fullscreen frame in a child process changes to another origin.
    * aFrameElement is the frame element which contains the child-process
    * fullscreen document.
+   *
+   * If nonzero, the fullscreen happens on the given VR HMD device index.
    */
   virtual nsresult
-    RemoteFrameFullscreenChanged(nsIDOMElement* aFrameElement) = 0;
+    RemoteFrameFullscreenChanged(nsIDOMElement* aFrameElement,
+                                 PRInt32 aVRDeviceIndex = 0) = 0;
 
   /**
    * Called when a frame in a remote child document has rolled back fullscreen

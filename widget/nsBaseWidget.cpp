@@ -78,7 +78,6 @@
 
 PRLogModuleInfo *gVsyncLog = nullptr;
 #define VSYNC_LOG(...)  MOZ_LOG(gVsyncLog, mozilla::LogLevel::Debug, (__VA_ARGS__))
-#define PARENT_OR_CHILD (XRE_IsParentProcess() ? "Parent" : "Child")
 
 #ifdef DEBUG
 #include "nsIObserver.h"
@@ -1456,7 +1455,7 @@ VsyncChildCreateCallback::CreateVsyncActor(PBackgroundChild* aPBackgroundChild,
     // add it to the table
     sVsyncChildTable->Put(aSourceID, child);
 
-    VSYNC_LOG("[%s]: Vsync actor %p created for display ID %s\n", PARENT_OR_CHILD, child.get(), nsIDToCString(aSourceID).get());
+    VSYNC_LOG("[%s]: Vsync actor %p created for display ID %s\n", XRE_GetProcessTypeString(), child.get(), nsIDToCString(aSourceID).get());
   }
 
   gfx::VsyncSource* display = static_cast<gfx::VsyncSource*>(child.get());
@@ -1513,7 +1512,7 @@ nsBaseWidget::UpdateVsyncObserver()
 
   if (!mIncomingVsyncObserver) {
     mIncomingVsyncObserver = new VsyncForwardingObserver();
-    VSYNC_LOG("[%s]: Widget %p creating incoming vsync observer %p\n", PARENT_OR_CHILD, this, mIncomingVsyncObserver.get());
+    VSYNC_LOG("[%s]: Widget %p creating incoming vsync observer %p\n", XRE_GetProcessTypeString(), this, mIncomingVsyncObserver.get());
 #ifdef MOZ_NUWA_PROCESS
     // After NUWA fork, make sure we set up the observer connection properly
     NuwaAddConstructor((void (*)(void *))&ForceUpdateVSyncObserver, this);
@@ -1526,7 +1525,7 @@ nsBaseWidget::UpdateVsyncObserver()
       // forward to our own listeners.
       mIncomingVsyncObserver->ObserveWidget(GetTopLevelWidget());
 
-      VSYNC_LOG("[%s]: Widget %p observing root widget %p (vsync ID %s)\n", PARENT_OR_CHILD, this, GetTopLevelWidget(),
+    VSYNC_LOG("[%s]: Widget %p observing root widget %p (vsync ID %s)\n", XRE_GetProcessTypeString(), this, GetTopLevelWidget(),
                 nsIDToCString(mIncomingVsyncObserver->GetObservedSourceID()).get());
     } else {
       // XXX this should be source-id-for-monitor, once we have multimonitor
@@ -1536,7 +1535,7 @@ nsBaseWidget::UpdateVsyncObserver()
     mIncomingVsyncObserver->ObserveSourceID(mDesiredVsyncSourceID);
   }
 
-  VSYNC_LOG("[%s]: Widget %p observing vsync ID %s\n", PARENT_OR_CHILD, this, nsIDToCString(mDesiredVsyncSourceID).get());
+  VSYNC_LOG("[%s]: Widget %p observing vsync ID %s\n", XRE_GetProcessTypeString(), this, nsIDToCString(mDesiredVsyncSourceID).get());
 }
 
 void
@@ -2382,6 +2381,35 @@ nsBaseWidget::UnregisterPluginWindowForRemoteUpdates()
   MOZ_ASSERT(sPluginWidgetList);
   sPluginWidgetList->Remove(id);
 #endif
+}
+
+void
+nsBaseWidget::SetAttachedHMD(mozilla::gfx::VRHMDInfo* aHMD)
+{
+  VSYNC_LOG("%p SetAttachedHMD %p\n", this, aHMD);
+
+  if (GetTopLevelWidget() != this) {
+    GetTopLevelWidget()->SetAttachedHMD(aHMD);
+    return;
+  }
+
+  mHMD = aHMD;
+
+  if (aHMD) {
+    mIncomingVsyncObserver->ObserveSourceID(aHMD->GetDeviceInfo().GetVsyncSourceID());
+  } else {
+    UpdateVsyncObserver();
+  }
+}
+
+mozilla::gfx::VRHMDInfo*
+nsBaseWidget::GetAttachedHMD()
+{
+  if (GetTopLevelWidget() != this) {
+    return GetTopLevelWidget()->GetAttachedHMD();
+  }
+
+  return mHMD;
 }
 
 void

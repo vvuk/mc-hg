@@ -193,6 +193,7 @@
 #include "mozilla/dom/GamepadService.h"
 #endif
 
+#include "VRManager.h"
 #include "mozilla/dom/VRDevice.h"
 
 #include "nsRefreshDriver.h"
@@ -6037,7 +6038,7 @@ FullscreenTransitionTask::Observer::Observe(nsISupports* aSubject,
 }
 
 static bool
-MakeWidgetFullscreen(nsGlobalWindow* aWindow, gfx::VRDeviceProxy* aHMD,
+MakeWidgetFullscreen(nsGlobalWindow* aWindow, uint32_t aVRDeviceIndex,
                      FullscreenReason aReason, bool aFullscreen)
 {
   nsCOMPtr<nsIWidget> widget = aWindow->GetMainWidget();
@@ -6055,22 +6056,31 @@ MakeWidgetFullscreen(nsGlobalWindow* aWindow, gfx::VRDeviceProxy* aHMD,
         PrepareForFullscreenTransition(getter_AddRefs(transitionData));
     }
   }
-  nsCOMPtr<nsIScreen> screen = aHMD ? aHMD->GetScreen() : nullptr;
+  
+  nsCOMPtr<nsIScreen> screen;
+  RefPtr<gfx::VRHMDInfo> hmd;
+  if (!XRE_IsContentProcess() && aVRDeviceIndex) {
+    hmd = gfx::VRManager::Get()->GetDevice(aVRDeviceIndex);
+    screen = hmd->GetScreen();
+  }
+
+  widget->SetAttachedHMD(hmd);
+
   if (!performTransition) {
     return aWindow->SetWidgetFullscreen(aReason, aFullscreen, widget, screen);
-  } else {
-    nsCOMPtr<nsIRunnable> task =
-      new FullscreenTransitionTask(duration, aWindow, aFullscreen,
-                                   widget, screen, transitionData);
-    task->Run();
-    return true;
   }
+
+  nsCOMPtr<nsIRunnable> task =
+    new FullscreenTransitionTask(duration, aWindow, aFullscreen,
+                                 widget, screen, transitionData);
+  task->Run();
+  return true;
 }
 
 nsresult
 nsGlobalWindow::SetFullscreenInternal(FullscreenReason aReason,
                                       bool aFullScreen,
-                                      gfx::VRDeviceProxy* aHMD)
+                                      uint32_t aVRDeviceIndex)
 {
   MOZ_ASSERT(IsOuterWindow());
   MOZ_ASSERT(nsContentUtils::IsSafeToRunScript(),
@@ -6099,7 +6109,7 @@ nsGlobalWindow::SetFullscreenInternal(FullscreenReason aReason,
   if (!window)
     return NS_ERROR_FAILURE;
   if (rootItem != mDocShell)
-    return window->SetFullscreenInternal(aReason, aFullScreen, aHMD);
+    return window->SetFullscreenInternal(aReason, aFullScreen, aVRDeviceIndex);
 
   // make sure we don't try to set full screen on a non-chrome window,
   // which might happen in embedding world
@@ -6150,7 +6160,7 @@ nsGlobalWindow::SetFullscreenInternal(FullscreenReason aReason,
   // dimensions to appear to increase when entering fullscreen mode; we just
   // want the content to fill the entire client area of the emulator window.
   if (!Preferences::GetBool("full-screen-api.ignore-widgets", false)) {
-    if (MakeWidgetFullscreen(this, aHMD, aReason, aFullScreen)) {
+    if (MakeWidgetFullscreen(this, aVRDeviceIndex, aReason, aFullScreen)) {
       // The rest of code for switching fullscreen is in nsGlobalWindow::
       // FinishFullscreenChange() which will be called after sizemodechange
       // event is dispatched.

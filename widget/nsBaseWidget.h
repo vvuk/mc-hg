@@ -355,6 +355,9 @@ public:
 
   virtual void StartAsyncScrollbarDrag(const AsyncDragMetrics& aDragMetrics) override;
 
+  void SetAttachedHMD(mozilla::gfx::VRHMDInfo* aHMD) override;
+  mozilla::gfx::VRHMDInfo* GetAttachedHMD() override;
+
   /**
    * Use this when GetLayerManager() returns a BasicLayerManager
    * (nsBaseWidget::GetLayerManager() does). This sets up the widget's
@@ -574,6 +577,9 @@ protected:
 #ifdef XP_WIN
   bool              mAccessibilityInUseFlag;
 #endif
+
+  RefPtr<mozilla::gfx::VRHMDInfo> mHMD;
+
   static nsIRollupListener* gRollupListener;
 
   // the last rolled up popup. Only set this when an nsAutoRollup is in scope,

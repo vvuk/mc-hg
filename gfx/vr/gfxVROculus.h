@@ -19,6 +19,8 @@
 
 namespace mozilla {
 namespace gfx {
+class VsyncSource;
+
 namespace impl {
 
 class HMDInfoOculus : public VRHMDInfo, public VRHMDRenderingSupport {
@@ -69,9 +71,10 @@ protected:
   ovrHmdDesc mDesc;
   ovrFovPort mFOVPort[2];
   int32_t mPerfHudMode;
-
+  RefPtr<VsyncSource> mVsyncSource;
+  
   VRHMDSensorState GetSensorState(double timeOffset);
-  int32_t mPerfHudMode;
+
   // The maximum number of frames of latency that we would expect before we
   // should give up applying pose prediction.
   // If latency is greater than one second, then the experience is not likely

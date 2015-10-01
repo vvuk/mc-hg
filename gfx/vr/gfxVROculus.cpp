@@ -8,12 +8,17 @@
 #include "prlink.h"
 #include "prmem.h"
 #include "prenv.h"
+#include "gfxPlatform.h"
 #include "gfxPrefs.h"
+#include "gfxUtils.h"
 #include "nsString.h"
+#include "gfxVsync.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/TimeStamp.h"
 
 #include "mozilla/gfx/Quaternion.h"
+#include "nsServiceManagerUtils.h"
+#include "nsIScreenManager.h"
 
 #ifdef XP_WIN
 #include "../layers/d3d11/CompositorD3D11.h"
@@ -233,6 +238,8 @@ HMDInfoOculus::HMDInfoOculus(ovrSession aSession)
   , mInputFrameID(0)
   , mPerfHudMode(0)
 {
+  MOZ_ASSERT(XRE_IsParentProcess(),
+             "Can only create HMDInfoOculus in XRE parent process!");
   MOZ_ASSERT(sizeof(HMDInfoOculus::DistortionVertex) == sizeof(VRDistortionVertex),
              "HMDInfoOculus::DistortionVertex must match the size of VRDistortionVertex");
 
@@ -256,6 +263,11 @@ HMDInfoOculus::HMDInfoOculus(ovrSession aSession)
   mDeviceInfo.mMaximumEyeFOV[VRDeviceInfo::Eye_Left] = FromFovPort(mDesc.MaxEyeFov[ovrEye_Left]);
   mDeviceInfo.mMaximumEyeFOV[VRDeviceInfo::Eye_Right] = FromFovPort(mDesc.MaxEyeFov[ovrEye_Right]);
 
+  // create a vsync source for this display and register it
+  mDeviceInfo.mVsyncSourceID = gfxUtils::GenerateUUID();
+  mVsyncSource = new SoftwareVsyncSource(mDeviceInfo.mVsyncSourceID, 1000.0 / mDesc.DisplayRefreshRate);
+  gfxPlatform::GetPlatform()->GetHardwareVsync()->RegisterSource(mVsyncSource);
+
   uint32_t w = mDesc.Resolution.w;
   uint32_t h = mDesc.Resolution.h;
   mDeviceInfo.mScreenRect.x = 0;
@@ -274,6 +286,12 @@ HMDInfoOculus::HMDInfoOculus(ovrSession aSession)
 void
 HMDInfoOculus::Destroy()
 {
+  if (mVsyncSource) {
+    gfxPlatform::GetPlatform()->GetHardwareVsync()->UnregisterSource(mDeviceInfo.mVsyncSourceID);
+    mVsyncSource->Shutdown();
+    mVsyncSource = nullptr;
+  }
+
   if (mSession) {
     ovr_Destroy(mSession);
     mSession = nullptr;

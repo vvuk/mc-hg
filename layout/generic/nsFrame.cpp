@@ -2033,9 +2033,9 @@ nsIFrame::BuildDisplayListForStackingContext(nsDisplayListBuilder* aBuilder,
   nsDisplayListBuilder::AutoBuildingDisplayList
     buildingDisplayList(aBuilder, this, dirtyRect, true);
 
-  mozilla::gfx::VRDeviceProxy* vrHMDInfo = nullptr;
+  uint32_t vrDeviceIndex = 0;
   if ((GetStateBits() & NS_FRAME_HAS_VR_CONTENT)) {
-    vrHMDInfo = static_cast<mozilla::gfx::VRDeviceProxy*>(mContent->GetProperty(nsGkAtoms::vr_state));
+    vrDeviceIndex = (uint32_t) reinterpret_cast<uintptr_t>(mContent->GetProperty(nsGkAtoms::vr_state));
   }
 
   DisplayListClipState::AutoSaveRestore clipState(aBuilder);
@@ -2292,9 +2292,9 @@ nsIFrame::BuildDisplayListForStackingContext(nsDisplayListBuilder* aBuilder,
 
   /* If we're doing VR rendering, then we need to wrap everything in a nsDisplayVR
    */
-  if (vrHMDInfo && !resultList.IsEmpty()) {
+  if (vrDeviceIndex && !resultList.IsEmpty()) {
     resultList.AppendNewToTop(
-      new (aBuilder) nsDisplayVR(aBuilder, this, &resultList, vrHMDInfo));
+      new (aBuilder) nsDisplayVR(aBuilder, this, &resultList, vrDeviceIndex));
   }
 
   /* If there's blending, wrap up the list in a blend-mode item. Note

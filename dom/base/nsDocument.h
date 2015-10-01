@@ -111,7 +111,6 @@ private:
   RefPtr<nsDocument> mDocument;
 
 public:
-  RefPtr<gfx::VRDeviceProxy> mVRHMDDevice;
   // This value should be true if the fullscreen request is
   // originated from chrome code.
   bool mIsCallerChrome = false;
@@ -122,6 +121,8 @@ public:
   // request in a subdocument in different process, whereupon the caller
   // need to send some notification itself with the real origin.
   bool mShouldNotifyNewOrigin = true;
+  // The VR device index, if any.
+  uint32_t mVRHMDDeviceIndex = 0;
 };
 
 } // namespace dom
@@ -1202,8 +1203,8 @@ public:
     mozilla::UniquePtr<FullscreenRequest>&& aRequest) override;
   virtual void RestorePreviousFullScreenState() override;
   virtual bool IsFullscreenLeaf() override;
-  virtual nsresult
-    RemoteFrameFullscreenChanged(nsIDOMElement* aFrameElement) override;
+  virtual nsresult RemoteFrameFullscreenChanged(nsIDOMElement* aFrameElement,
+                                                PRInt32 aVRDeviceIndex = 0) override;
 
   virtual nsresult RemoteFrameFullscreenReverted() override;
   virtual nsIDocument* GetFullscreenRoot() override;

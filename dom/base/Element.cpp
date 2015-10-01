@@ -3289,7 +3289,7 @@ Element::RequestFullscreen(JSContext* aCx, JS::Handle<JS::Value> aOptions,
       }
 
       if (fsOptions.mVrDisplay) {
-        request->mVRHMDDevice = fsOptions.mVrDisplay->GetHMD();
+        request->mVRHMDDeviceIndex = fsOptions.mVrDisplay->GetHMD()->GetDeviceInfo().GetDeviceID();
       }
     }
   }

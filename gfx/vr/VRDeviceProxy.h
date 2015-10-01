@@ -6,7 +6,6 @@
 #ifndef GFX_VR_PROXY_H
 #define GFX_VR_PROXY_H
 
-#include "nsIScreen.h"
 #include "nsCOMPtr.h"
 #include "mozilla/RefPtr.h"
 
@@ -36,20 +35,11 @@ public:
 
   virtual void ZeroSensor();
 
-
-  // The nsIScreen that represents this device
-  nsIScreen* GetScreen() { return mScreen; }
-
 protected:
   virtual ~VRDeviceProxy();
 
   VRDeviceInfo mDeviceInfo;
   VRHMDSensorState mSensorState;
-
-  nsCOMPtr<nsIScreen> mScreen;
-
-  static already_AddRefed<nsIScreen> MakeFakeScreen(const IntRect& aScreenRect);
-
 };
 
 } // namespace gfx

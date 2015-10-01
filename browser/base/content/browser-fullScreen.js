@@ -157,9 +157,14 @@ var FullScreen = {
 
   receiveMessage: function(aMessage) {
     let browser = aMessage.target;
+    let data = aMessage.data;
     switch (aMessage.name) {
       case "DOMFullscreen:Request": {
-        this._windowUtils.remoteFrameFullscreenChanged(browser);
+        let hmd = 0;
+        if (data && data.vrDeviceID) {
+          hmd = aMessage.data.vrDeviceID;
+        }
+        this._windowUtils.remoteFrameFullscreenChanged(browser, hmd);
         break;
       }
       case "DOMFullscreen:NewOrigin": {

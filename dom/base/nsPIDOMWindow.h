@@ -44,9 +44,6 @@ class AudioContext;
 class Element;
 class ServiceWorkerRegistrationMainThread;
 } // namespace dom
-namespace gfx {
-class VRDeviceProxy;
-} // namespace gfx
 } // namespace mozilla
 
 // Popup control state enum. The values in this enum must go from most
@@ -330,14 +327,14 @@ public:
    * Moves the top-level window into fullscreen mode if aIsFullScreen is true,
    * otherwise exits fullscreen.
    *
-   * If aHMD is not null, the window is made full screen on the given VR HMD
+   * If aVRDeviceIndex is not 0, the window is made full screen on the given VR HMD
    * device instead of its currrent display.
    *
    * Outer windows only.
    */
   virtual nsresult SetFullscreenInternal(
     FullscreenReason aReason, bool aIsFullscreen,
-    mozilla::gfx::VRDeviceProxy *aHMD = nullptr) = 0;
+    uint32_t aVRDeviceIndex = 0) = 0;
 
   /**
    * This function should be called when the fullscreen state is flipped.
@@ -572,6 +569,9 @@ public:
   virtual nsresult MoveBy(int32_t aXDif, int32_t aYDif) = 0;
   virtual nsresult UpdateCommands(const nsAString& anAction, nsISelection* aSel, int16_t aReason) = 0;
 
+  virtual void SetVRHMDDeviceIndex(uint32_t aDeviceIndex) { mVRHMDDeviceIndex = aDeviceIndex; }
+  virtual uint32_t GetVRHMDDeviceIndex() const { return mVRHMDDeviceIndex; }
+
 protected:
   // The nsPIDOMWindow constructor. The aOuterWindow argument should
   // be null if and only if the created window itself is an outer
@@ -681,6 +681,9 @@ protected:
   // Let the service workers plumbing know that some feature are enabled while
   // testing.
   bool mServiceWorkersTestingEnabled;
+
+  // The VR HMD device index attached to this window, if any
+  uint32_t mVRHMDDeviceIndex = 0;
 };
 
 #define NS_PIDOMWINDOWINNER_IID \

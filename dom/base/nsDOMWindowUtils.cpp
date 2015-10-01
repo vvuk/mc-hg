@@ -3036,12 +3036,13 @@ nsDOMWindowUtils::SetScrollPositionClampingScrollPortSize(float aWidth, float aH
 }
 
 nsresult
-nsDOMWindowUtils::RemoteFrameFullscreenChanged(nsIDOMElement* aFrameElement)
+nsDOMWindowUtils::RemoteFrameFullscreenChanged(nsIDOMElement* aFrameElement,
+                                               PRInt32 aVRDeviceIndex)
 {
   nsCOMPtr<nsIDocument> doc = GetDocument();
   NS_ENSURE_STATE(doc);
 
-  doc->RemoteFrameFullscreenChanged(aFrameElement);
+  doc->RemoteFrameFullscreenChanged(aFrameElement, aVRDeviceIndex);
   return NS_OK;
 }
 
@@ -3868,6 +3869,20 @@ nsDOMWindowUtils::SetNextPaintSyncId(int32_t aSyncId)
   }
 
   NS_WARNING("Paint sync id could not be set on the ClientLayerManager");
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsDOMWindowUtils::GetVrHMDDeviceID(uint32_t* aResult)
+{
+  if (!nsContentUtils::IsCallerChrome()) {
+    return NS_ERROR_DOM_SECURITY_ERR;
+  }
+
+  nsCOMPtr<nsPIDOMWindowOuter> window = do_QueryReferent(mWindow);
+  NS_ENSURE_STATE(window);
+
+  *aResult = window->GetVRHMDDeviceIndex();
   return NS_OK;
 }
 

@@ -242,8 +242,8 @@
 #include "nsLocation.h"
 #include "mozilla/dom/FontFaceSet.h"
 #include "mozilla/dom/BoxObject.h"
-#include "gfxVR.h"
 #include "gfxPrefs.h"
+#include "VRManager.h"
 #include "nsISupportsPrimitives.h"
 #include "mozilla/StyleSetHandle.h"
 #include "mozilla/StyleSetHandleInlines.h"
@@ -11263,6 +11263,7 @@ public:
       /* Bubbles */ true, /* Cancelable */ false, /* DefaultAction */ nullptr);
     // Ensure the window exits fullscreen.
     if (nsPIDOMWindowOuter* win = mDocuments[0]->GetWindow()) {
+      win->SetVRHMDDeviceIndex(0);
       win->SetFullscreenInternal(FullscreenReason::ForForceExitFullscreen, false);
     }
     return NS_OK;
@@ -11641,7 +11642,8 @@ IsInActiveTab(nsIDocument* aDoc)
   return activeWindow == rootWin;
 }
 
-nsresult nsDocument::RemoteFrameFullscreenChanged(nsIDOMElement* aFrameElement)
+nsresult nsDocument::RemoteFrameFullscreenChanged(nsIDOMElement* aFrameElement,
+                                                  PRInt32 aVRDeviceIndex)
 {
   // Ensure the frame element is the fullscreen element in this document.
   // If the frame element is already the fullscreen element in this document,
@@ -11650,6 +11652,9 @@ nsresult nsDocument::RemoteFrameFullscreenChanged(nsIDOMElement* aFrameElement)
   auto request = MakeUnique<FullscreenRequest>(content->AsElement());
   request->mIsCallerChrome = false;
   request->mShouldNotifyNewOrigin = false;
+  if (aVRDeviceIndex > 0) {
+    request->mVRHMDDeviceIndex = aVRDeviceIndex;
+  }
   RequestFullScreen(Move(request));
 
   return NS_OK;
@@ -11659,14 +11664,6 @@ nsresult nsDocument::RemoteFrameFullscreenReverted()
 {
   RestorePreviousFullScreenState();
   return NS_OK;
-}
-
-static void
-ReleaseVRDeviceProxyRef(void *, nsIAtom*, void *aPropertyValue, void *)
-{
-  if (aPropertyValue) {
-    static_cast<gfx::VRDeviceProxy*>(aPropertyValue)->Release();
-  }
 }
 
 static bool
@@ -11956,18 +11953,26 @@ nsDocument::RequestFullScreen(UniquePtr<FullscreenRequest>&& aRequest)
   }
 
   PendingFullscreenRequestList::Add(Move(aRequest));
+  const FullscreenRequest*
+    lastRequest = PendingFullscreenRequestList::GetLast();
   if (XRE_GetProcessType() == GeckoProcessType_Content) {
     // If we are not the top level process, dispatch an event to make
     // our parent process go fullscreen first.
+
+    // First, if we have a HMD, inform the root window
+    if (lastRequest->mVRHMDDeviceIndex) {
+      rootWin->SetVRHMDDeviceIndex(lastRequest->mVRHMDDeviceIndex);
+    }
+
+    // Then send an event to chrome, which will be turned into a message
+    // to the parent.
     nsContentUtils::DispatchEventOnlyToChrome(
       this, ToSupports(this), NS_LITERAL_STRING("MozDOMFullscreen:Request"),
       /* Bubbles */ true, /* Cancelable */ false, /* DefaultAction */ nullptr);
   } else {
     // Make the window fullscreen.
-    const FullscreenRequest*
-      lastRequest = PendingFullscreenRequestList::GetLast();
     rootWin->SetFullscreenInternal(FullscreenReason::ForFullscreenAPI, true,
-                                   lastRequest->mVRHMDDevice);
+                                   lastRequest->mVRHMDDeviceIndex);
   }
 }
 
@@ -12024,11 +12029,11 @@ nsDocument::ApplyFullscreen(const FullscreenRequest& aRequest)
   // before setting a new document to fullscreen
   UnlockPointer();
 
-  // Process options -- in this case, just HMD
-  if (aRequest.mVRHMDDevice) {
-    RefPtr<gfx::VRDeviceProxy> hmdRef = aRequest.mVRHMDDevice;
-    elem->SetProperty(nsGkAtoms::vr_state, hmdRef.forget().take(),
-                      ReleaseVRDeviceProxyRef, true);
+  // vr_state
+  if (aRequest.mVRHMDDeviceIndex) {
+    elem->SetProperty(nsGkAtoms::vr_state,
+                      reinterpret_cast<void*>(aRequest.mVRHMDDeviceIndex),
+                      nullptr, true);
   }
 
   // Set the full-screen element. This sets the full-screen style on the
