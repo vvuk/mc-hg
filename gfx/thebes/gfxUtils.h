@@ -299,6 +299,11 @@ public:
     static void CopyAsDataURI(SourceSurface* aSourceSurface);
     static void CopyAsDataURI(DrawTarget* aDT);
 
+    /**
+     * Generate a UUID
+     */
+    static nsID GenerateUUID();
+
     static bool DumpDisplayList();
 
     static FILE* sDumpPaintFile;

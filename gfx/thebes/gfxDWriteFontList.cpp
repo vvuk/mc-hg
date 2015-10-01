@@ -18,6 +18,7 @@
 #include "nsDirectoryServiceDefs.h"
 #include "nsAppDirectoryServiceDefs.h"
 #include "nsISimpleEnumerator.h"
+#include "gfXUtils.h"
 
 #include "gfxGDIFontList.h"
 

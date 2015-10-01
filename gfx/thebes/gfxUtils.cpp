@@ -12,6 +12,7 @@
 #include "gfxPlatform.h"
 #include "gfxDrawable.h"
 #include "imgIEncoder.h"
+#include "mozilla/DebugOnly.h"
 #include "mozilla/Base64.h"
 #include "mozilla/dom/ImageEncoder.h"
 #include "mozilla/dom/WorkerPrivate.h"
@@ -38,6 +39,7 @@
 #include "ImageRegion.h"
 #include "gfx2DGlue.h"
 #include "gfxPrefs.h"
+#include "nsIUUIDGenerator.h"
 
 #ifdef XP_WIN
 #include "gfxWindowsPlatform.h"
@@ -1550,6 +1552,19 @@ gfxUtils::ThreadSafeGetFeatureStatus(const nsCOMPtr<nsIGfxInfo>& gfxInfo,
   }
 
   return gfxInfo->GetFeatureStatus(feature, status);
+}
+
+/* static */ nsID
+gfxUtils::GenerateUUID()
+{
+  nsCOMPtr<nsIUUIDGenerator> uuidgen =
+      do_GetService("@mozilla.org/uuid-generator;1");
+  MOZ_ASSERT(uuidgen, "Couldn't get UUID generator");
+
+  nsID val;
+  DebugOnly<nsresult> rv = uuidgen->GenerateUUIDInPlace(&val);
+  MOZ_ASSERT(NS_SUCCEEDED(rv), "Generating UUID failed");
+  return val;
 }
 
 /* static */ bool
