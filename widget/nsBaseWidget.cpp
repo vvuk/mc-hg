@@ -2302,6 +2302,35 @@ nsBaseWidget::UnregisterPluginWindowForRemoteUpdates()
 }
 
 void
+nsBaseWidget::SetAttachedHMD(mozilla::gfx::VRHMDInfo* aHMD)
+{
+  VSYNC_LOG("%p SetAttachedHMD %p\n", this, aHMD);
+
+  if (GetVsyncRootWidget() != this) {
+    GetVsyncRootWidget()->SetAttachedHMD(aHMD);
+    return;
+  }
+
+  mHMD = aHMD;
+
+  if (aHMD) {
+    mIncomingVsyncObserver->ObserveSourceID(aHMD->GetVsyncSourceID());
+  } else {
+    mIncomingVsyncObserver->ObserveSourceID(mDesiredVsyncSourceID);
+  }
+}
+
+mozilla::gfx::VRHMDInfo*
+nsBaseWidget::GetAttachedHMD()
+{
+  if (GetVsyncRootWidget() != this) {
+    return GetVsyncRootWidget()->GetAttachedHMD();
+  }
+
+  return mHMD;
+}
+
+void
 nsBaseWidget::ParentChanged()
 {
   // Our hierarchy changed, so make sure we're still observing

@@ -819,6 +819,9 @@ public:
   virtual nsresult MoveBy(int32_t aXDif, int32_t aYDif) = 0;
   virtual nsresult UpdateCommands(const nsAString& anAction, nsISelection* aSel, int16_t aReason) = 0;
 
+  // If there's a HMD currently attached to the Window
+  virtual mozilla::gfx::VRHMDInfo* GetVRHMD() { return nullptr; }
+
 protected:
   // The nsPIDOMWindow constructor. The aOuterWindow argument should
   // be null if and only if the created window itself is an outer
