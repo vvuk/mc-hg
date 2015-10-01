@@ -6,6 +6,7 @@
 #define nsBaseWidget_h__
 
 #include "mozilla/EventForwards.h"
+#include "mozilla/Mutex.h"
 #include "mozilla/WidgetUtils.h"
 #include "mozilla/layers/APZCCallbackHelper.h"
 #include "nsRect.h"
@@ -20,6 +21,7 @@
 #include "nsIWidgetListener.h"
 #include "nsPIDOMWindow.h"
 #include "nsWeakReference.h"
+
 #include <algorithm>
 class nsIContent;
 class nsAutoRollup;
@@ -42,7 +44,13 @@ class APZEventState;
 struct ScrollableLayerGuid;
 } // namespace layers
 
-class CompositorVsyncDispatcher;
+namespace layout {
+class VsyncChild;
+} // namespace layout (XXX to move from layout to gfx)
+
+namespace gfx {
+class VsyncObserver;
+} // namespace gfx
 } // namespace mozilla
 
 namespace base {
@@ -54,6 +62,8 @@ class Thread;
 // ids we can use when injecting touch points on Windows.
 #define TOUCH_INJECT_MAX_POINTS 256
 
+class VsyncForwardingObserver;
+class WidgetVsyncSource;
 class nsBaseWidget;
 
 // Helper class used in shutting down gfx related code.
@@ -121,6 +131,7 @@ public:
   virtual float           GetDPI() override;
   virtual void            AddChild(nsIWidget* aChild) override;
   virtual void            RemoveChild(nsIWidget* aChild) override;
+  virtual void            ParentChanged() override;
 
   void                    SetZIndex(int32_t aZIndex) override;
   NS_IMETHOD              PlaceBehind(nsTopLevelWidgetZPlacement aPlacement,
@@ -157,8 +168,6 @@ public:
                                           LayerManagerPersistence aPersistence = LAYER_MANAGER_CURRENT,
                                           bool* aAllowRetaining = nullptr) override;
 
-  CompositorVsyncDispatcher* GetCompositorVsyncDispatcher() override;
-  void            CreateCompositorVsyncDispatcher();
   virtual CompositorParent* NewCompositorParent(int aSurfaceWidth, int aSurfaceHeight);
   virtual void            CreateCompositor();
   virtual void            CreateCompositor(int aWidth, int aHeight);
@@ -267,6 +276,31 @@ public:
 
   virtual void SetNativeData(uint32_t aDataType, uintptr_t aVal) override {};
 
+  /*
+   * Vsync
+   */
+  bool AddVsyncObserver(mozilla::gfx::VsyncObserver *aObserver) override;
+  bool RemoveVsyncObserver(mozilla::gfx::VsyncObserver *aObserver) override;
+  nsID GetVsyncSourceIdentifier() override;
+
+protected:
+  friend class VsyncForwardingObserver;
+  friend class WidgetVsyncSource;
+
+  nsIWidget *GetVsyncRootWidget();
+  void UpdateVsyncObserver();
+  static void ForceUpdateVSyncObserver(nsBaseWidget *aWidget);
+  void ForwardVsyncNotification(mozilla::TimeStamp aVsyncTimestamp);
+  void ShutdownVsync();
+  void DestroyVsync();
+
+  RefPtr<mozilla::layout::VsyncChild> mVsyncChild;
+  RefPtr<VsyncForwardingObserver> mIncomingVsyncObserver;
+  nsTArray<RefPtr<mozilla::gfx::VsyncObserver>> mVsyncObservers;
+  mozilla::Mutex mVsyncObserversLock;
+  nsID mDesiredVsyncSourceID;
+
+public:
   // Should be called by derived implementations to notify on system color and
   // theme changes.
   void NotifySysColorChanged();
@@ -499,7 +533,6 @@ protected:
   RefPtr<LayerManager> mLayerManager;
   RefPtr<CompositorChild> mCompositorChild;
   RefPtr<CompositorParent> mCompositorParent;
-  RefPtr<mozilla::CompositorVsyncDispatcher> mCompositorVsyncDispatcher;
   RefPtr<APZCTreeManager> mAPZC;
   RefPtr<APZEventState> mAPZEventState;
   SetAllowedTouchBehaviorCallback mSetAllowedTouchBehaviorCallback;

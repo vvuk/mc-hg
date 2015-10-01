@@ -49,7 +49,7 @@ class SourceSurface;
 class DataSourceSurface;
 class ScaledFont;
 class DrawEventRecorder;
-class VsyncSource;
+class VsyncManager;
 class DeviceInitData;
 
 inline uint32_t
@@ -564,10 +564,10 @@ public:
      * Get the hardware vsync source for each platform.
      * Should only exist and be valid on the parent process
      */
-    virtual mozilla::gfx::VsyncSource* GetHardwareVsync() {
-      MOZ_ASSERT(mVsyncSource != nullptr);
+    virtual mozilla::gfx::VsyncManager* GetHardwareVsync() {
+      MOZ_ASSERT(mVsyncManager != nullptr);
       MOZ_ASSERT(XRE_IsParentProcess());
-      return mVsyncSource;
+      return mVsyncManager;
     }
 
     /**
@@ -640,7 +640,7 @@ protected:
     /**
      * Initialized hardware vsync based on each platform.
      */
-    virtual already_AddRefed<mozilla::gfx::VsyncSource> CreateHardwareVsyncSource();
+    virtual already_AddRefed<mozilla::gfx::VsyncManager> CreateHardwareVsyncManager();
 
     // Returns whether or not layers should be accelerated by default on this platform.
     virtual bool AccelerateLayersByDefault();
@@ -652,6 +652,12 @@ protected:
     virtual bool SupportsBasicCompositor() const {
       return true;
     }
+
+    /**
+     * Initialized software vsync; can be overriden by the platform, but a generic
+     * timer-based impl exists.
+     */
+    virtual already_AddRefed<mozilla::gfx::VsyncManager> CreateSoftwareVsyncManager();
 
     /**
      * Initialise the preferred and fallback canvas backends
@@ -720,7 +726,7 @@ protected:
     uint32_t mTotalSystemMemory;
 
     // Hardware vsync source. Only valid on parent process
-    RefPtr<mozilla::gfx::VsyncSource> mVsyncSource;
+    RefPtr<mozilla::gfx::VsyncManager> mVsyncManager;
 
     RefPtr<mozilla::gfx::DrawTarget> mScreenReferenceDrawTarget;
 

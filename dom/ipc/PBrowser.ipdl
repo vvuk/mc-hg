@@ -93,6 +93,7 @@ struct ShowInfo
   bool fakeShowInfo;
   float dpi;
   double defaultScale;
+  nsID vsyncDisplayID;
 };
 
 prio(normal upto urgent) sync protocol PBrowser

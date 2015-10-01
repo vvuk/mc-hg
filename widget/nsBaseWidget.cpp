@@ -41,12 +41,13 @@
 #include "mozilla/unused.h"
 #include "nsContentUtils.h"
 #include "gfxPrefs.h"
+#include "gfxVR.h"
 #include "mozilla/gfx/2D.h"
 #include "mozilla/MouseEvents.h"
 #include "GLConsts.h"
 #include "mozilla/unused.h"
 #include "mozilla/IMEStateManager.h"
-#include "mozilla/VsyncDispatcher.h"
+#include "gfxVsync.h"
 #include "mozilla/layers/APZCTreeManager.h"
 #include "mozilla/layers/APZEventState.h"
 #include "mozilla/layers/APZThreadUtils.h"
@@ -61,9 +62,20 @@
 #include "TouchEvents.h"
 #include "WritingModes.h"
 #include "InputData.h"
+#include "BackgroundChild.h"
+#include "mozilla/ipc/PBackgroundChild.h"
+#include "nsIIPCBackgroundChildCreateCallback.h"
+#include "mozilla/layout/VsyncChild.h"
 #ifdef ACCESSIBILITY
 #include "nsAccessibilityService.h"
 #endif
+#ifdef MOZ_NUWA_PROCESS
+#include "ipc/Nuwa.h"
+#endif
+
+PRLogModuleInfo *gVsyncLog = nullptr;
+#define VSYNC_LOG(...)  MOZ_LOG(gVsyncLog, mozilla::LogLevel::Debug, (__VA_ARGS__))
+#define PARENT_OR_CHILD (XRE_IsParentProcess() ? "Parent" : "Child")
 
 #ifdef DEBUG
 #include "nsIObserver.h"
@@ -105,6 +117,8 @@ int32_t nsIWidget::sPointerIdCounter = 0;
 // Some statics from nsIWidget.h
 /*static*/ uint64_t AutoObserverNotifier::sObserverId = 0;
 /*static*/ nsDataHashtable<nsUint64HashKey, nsCOMPtr<nsIObserver>> AutoObserverNotifier::sSavedObservers;
+
+static nsRefPtrHashtable<nsIDHashKey, layout::VsyncChild>* sVsyncChildTable;
 
 namespace mozilla {
 namespace widget {
@@ -149,11 +163,11 @@ NS_IMPL_ISUPPORTS(nsBaseWidget, nsIWidget, nsISupportsWeakReference)
 //-------------------------------------------------------------------------
 
 nsBaseWidget::nsBaseWidget()
-: mWidgetListener(nullptr)
+: mVsyncObserversLock("Widget vsync observer lock")
+, mWidgetListener(nullptr)
 , mAttachedWidgetListener(nullptr)
 , mPreviouslyAttachedWidgetListener(nullptr)
 , mLayerManager(nullptr)
-, mCompositorVsyncDispatcher(nullptr)
 , mCursor(eCursor_standard)
 , mBorderStyle(eBorderStyle_none)
 , mBounds(0,0,0,0)
@@ -166,6 +180,10 @@ nsBaseWidget::nsBaseWidget()
 , mUseAttachedEvents(false)
 , mIMEHasFocus(false)
 {
+  if (!gVsyncLog) {
+    gVsyncLog = PR_NewLogModule("Vsync");
+  }
+
 #ifdef NOISY_WIDGET_LEAKS
   gNumWidgets++;
   printf("WIDGETS+ = %d\n", gNumWidgets);
@@ -180,7 +198,13 @@ nsBaseWidget::nsBaseWidget()
     sPluginWidgetList = new nsRefPtrHashtable<nsVoidPtrHashKey, nsIWidget>();
   }
 #endif
+
+  if (!sVsyncChildTable) {
+    sVsyncChildTable = new nsRefPtrHashtable<nsIDHashKey, layout::VsyncChild>();
+  }
+
   mShutdownObserver = new WidgetShutdownObserver(this);
+  mDesiredVsyncSourceID = gfx::VsyncManager::kGlobalDisplaySourceID;
 }
 
 NS_IMPL_ISUPPORTS(WidgetShutdownObserver, nsIObserver)
@@ -233,6 +257,7 @@ WidgetShutdownObserver::Unregister()
 void
 nsBaseWidget::Shutdown()
 {
+  ShutdownVsync();
   DestroyCompositor();
   FreeShutdownObserver();
 #if defined(XP_WIN) || defined(MOZ_WIDGET_GTK)
@@ -252,12 +277,6 @@ void nsBaseWidget::DestroyCompositor()
     RefPtr<CompositorParent> compositorParent = mCompositorParent;
     mCompositorChild->Destroy();
   }
-
-  // Can have base widgets that are things like tooltips
-  // which don't have CompositorVsyncDispatchers
-  if (mCompositorVsyncDispatcher) {
-    mCompositorVsyncDispatcher->Shutdown();
-  }
 }
 
 void nsBaseWidget::DestroyLayerManager()
@@ -276,31 +295,6 @@ nsBaseWidget::FreeShutdownObserver()
     mShutdownObserver->Unregister();
   }
   mShutdownObserver = nullptr;
-}
-
-//-------------------------------------------------------------------------
-//
-// nsBaseWidget destructor
-//
-//-------------------------------------------------------------------------
-nsBaseWidget::~nsBaseWidget()
-{
-  IMEStateManager::WidgetDestroyed(this);
-
-  if (mLayerManager &&
-      mLayerManager->GetBackendType() == LayersBackend::LAYERS_BASIC) {
-    static_cast<BasicLayerManager*>(mLayerManager.get())->ClearRetainerWidget();
-  }
-
-  FreeShutdownObserver();
-  DestroyLayerManager();
-
-#ifdef NOISY_WIDGET_LEAKS
-  gNumWidgets--;
-  printf("WIDGETS- = %d\n", gNumWidgets);
-#endif
-
-  delete mOriginalBounds;
 }
 
 //-------------------------------------------------------------------------
@@ -331,6 +325,8 @@ void nsBaseWidget::BaseCreate(nsIWidget *aParent,
   if (aParent) {
     aParent->AddChild(this);
   }
+
+  UpdateVsyncObserver();
 }
 
 NS_IMETHODIMP nsBaseWidget::CaptureMouse(bool aCapture)
@@ -421,25 +417,6 @@ void nsBaseWidget::SetAttachedWidgetListener(nsIWidgetListener* aListener)
  {
    mAttachedWidgetListener = aListener;
  }
-
-//-------------------------------------------------------------------------
-//
-// Close this nsBaseWidget
-//
-//-------------------------------------------------------------------------
-NS_METHOD nsBaseWidget::Destroy()
-{
-  // Just in case our parent is the only ref to us
-  nsCOMPtr<nsIWidget> kungFuDeathGrip(this);
-  // disconnect from the parent
-  nsIWidget *parent = GetParent();
-  if (parent) {
-    parent->RemoveChild(this);
-  }
-
-  return NS_OK;
-}
-
 
 //-------------------------------------------------------------------------
 //
@@ -539,6 +516,7 @@ void nsBaseWidget::AddChild(nsIWidget* aChild)
     aChild->SetPrevSibling(mLastChild);
     mLastChild = aChild;
   }
+  aChild->ParentChanged();
 }
 
 
@@ -580,6 +558,7 @@ void nsBaseWidget::RemoveChild(nsIWidget* aChild)
 
   aChild->SetNextSibling(nullptr);
   aChild->SetPrevSibling(nullptr);
+  aChild->ParentChanged();
 }
 
 
@@ -863,6 +842,7 @@ nsBaseWidget::ComputeShouldAccelerate()
 CompositorParent* nsBaseWidget::NewCompositorParent(int aSurfaceWidth,
                                                     int aSurfaceHeight)
 {
+  VSYNC_LOG("Widget %p NewCompositorParent", this);
   return new CompositorParent(this, false, aSurfaceWidth, aSurfaceHeight);
 }
 
@@ -1152,20 +1132,369 @@ nsBaseWidget::GetDocument() const
   return nullptr;
 }
 
-void nsBaseWidget::CreateCompositorVsyncDispatcher()
+class VsyncForwardingObserver;
+
+namespace {
+
+// The PBackground protocol connection callback. It will be called when
+// PBackground is ready. Then we create the PVsync sub-protocol for our
+// vsync-base RefreshTimer.
+class VsyncChildCreateCallback final : public nsIIPCBackgroundChildCreateCallback
 {
-  // Parent directly listens to the vsync source whereas
-  // child process communicate via IPC
-  // Should be called AFTER gfxPlatform is initialized
-  if (XRE_IsParentProcess()) {
-    mCompositorVsyncDispatcher = new CompositorVsyncDispatcher();
+  NS_DECL_ISUPPORTS
+
+public:
+  VsyncChildCreateCallback(const nsID& aSourceID, VsyncForwardingObserver *aObserver)
+    : mSourceID(aSourceID)
+    , mObserver(aObserver)
+  {
+    MOZ_ASSERT(NS_IsMainThread());
+  }
+
+  static void CreateVsyncActor(PBackgroundChild* aPBackgroundChild, const nsID& aSourceID, VsyncForwardingObserver *aObserver);
+
+protected:
+  virtual ~VsyncChildCreateCallback() {}
+
+  virtual void ActorCreated(PBackgroundChild* aPBackgroundChild) override
+  {
+    MOZ_ASSERT(NS_IsMainThread());
+    MOZ_ASSERT(aPBackgroundChild);
+    CreateVsyncActor(aPBackgroundChild, mSourceID, mObserver);
+  }
+
+  virtual void ActorFailed() override
+  {
+    MOZ_ASSERT(NS_IsMainThread());
+    MOZ_CRASH("Failed To Create VsyncChild Actor");
+  }
+
+  nsID mSourceID;
+  RefPtr<VsyncForwardingObserver> mObserver;
+}; // VsyncChildCreateCallback
+NS_IMPL_ISUPPORTS(VsyncChildCreateCallback, nsIIPCBackgroundChildCreateCallback)
+
+} // namespace anon
+
+class VsyncForwardingObserver final : public mozilla::gfx::VsyncObserver {
+public:
+  explicit VsyncForwardingObserver(nsBaseWidget *aWidget)
+    : mPaused(false)
+    , mWidget(aWidget)
+    , mObservedWidget(nullptr)
+  { }
+
+  void NotifyVsync(mozilla::TimeStamp aVsyncTimestamp) override {
+    nsBaseWidget *holdWidget = mWidget;
+    if (holdWidget)
+      holdWidget->ForwardVsyncNotification(aVsyncTimestamp);
+  }
+
+  void Pause() {
+    if (mPaused)
+      return;
+
+    mPaused = true;
+
+    PauseInternal();
+  }
+
+  void Unpause() {
+    if (!mPaused)
+      return;
+
+    mPaused = false;
+
+    if (mObservedWidget) {
+      mObservedWidget->AddVsyncObserver(this);
+      return;
+    }
+
+    ObserveSourceID(mSourceID);
+  }
+
+  void ObserveWidget(nsIWidget *aWidget) {
+    if (mObservedWidget == aWidget)
+      return;
+
+    Unobserve();
+
+    mObservedWidget = aWidget;
+    if (!mPaused)
+      mObservedWidget->AddVsyncObserver(this);
+  }
+
+  void ObserveSource(gfx::VsyncSource* aSource) {
+    if (AttachedSource() == aSource)
+      return;
+
+    Unobserve();
+
+    mSourceID = aSource->ID();
+    if (!mPaused)
+      aSource->AddVsyncObserver(this);
+  }
+
+  void ObserveSourceID(const nsID& aVsyncSourceID) {
+    mSourceID = aVsyncSourceID;
+
+#ifdef MOZ_NUWA_PROCESS
+    // If we're the NUWA process, we don't actually observe anything here.  We can't
+    // set up a PVSync connection because we don't have Clone set up (and we don't need
+    // it anyway).
+    if (IsNuwaProcess()) {
+      return;
+    }
+#endif
+
+    RefPtr<gfx::VsyncSource> display;
+    if (XRE_IsParentProcess()) {
+      // Parent; we can grab the vsync display directly
+      display = gfxPlatform::GetPlatform()->GetHardwareVsync()->GetSource(aVsyncSourceID);
+      ObserveSource(display);
+      return;
+    }
+
+    // Child
+
+    // first check if we already have a VsyncChild for the display id
+    display = sVsyncChildTable->GetWeak(aVsyncSourceID);
+    if (display) {
+      // Yes? Great; observe it and move on.
+      ObserveSource(display);
+      return;
+    }
+
+    // No? Set up a new VsyncChild via PBackground.
+    PBackgroundChild* backgroundChild = BackgroundChild::GetForCurrentThread();
+    if (backgroundChild) {
+      // If we already have PBackground connection, create Vsync actor directly without going
+      // through a callback
+      VsyncChildCreateCallback::CreateVsyncActor(backgroundChild, aVsyncSourceID, this);
+    } else {
+      // Otherwise, set up a callback for when PBackground is created
+      RefPtr<nsIIPCBackgroundChildCreateCallback> callback = new VsyncChildCreateCallback(aVsyncSourceID, this);
+      if (NS_WARN_IF(!BackgroundChild::GetOrCreateForCurrentThread(callback))) {
+        MOZ_CRASH("PVsync actor create failed!");
+      }
+    }
+  }
+
+  void Destroy() {
+    Pause();
+    Unobserve();
+    // Clear mWidget after unobserving, to prevent this code racing with
+    // NotifyVsync.
+    mWidget = nullptr;
+  }
+
+  nsID GetObservedSourceID() {
+    return mSourceID;
+  }
+
+protected:
+  virtual ~VsyncForwardingObserver() {
+    Destroy();
+  }
+
+  void Unobserve() {
+    // Call PauseInternal directly, because we don't
+    // want to actually changed mPaused
+    PauseInternal();
+
+    mObservedWidget = nullptr;
+  }
+
+  void PauseInternal() {
+    if (mObservedWidget) {
+      mObservedWidget->RemoveVsyncObserver(this);
+      return;
+    }
+
+    if (AttachedSource()) {
+      AttachedSource()->RemoveVsyncObserver(this);
+      return;
+    }
+  }
+
+  bool mPaused;
+  nsID mSourceID;
+  // This is the owner widget for this vsync observer.  It always gets
+  // deleted before the widget goes away.
+  nsBaseWidget* mWidget;
+  // If we're observing a widget.  It will always be a parent, which means
+  // that it will hold a ref to us in its children.
+  nsIWidget* mObservedWidget;
+};
+
+/* static */ void
+VsyncChildCreateCallback::CreateVsyncActor(PBackgroundChild* aPBackgroundChild,
+                                           const nsID& aSourceID,
+                                           VsyncForwardingObserver *aObserver)
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  MOZ_ASSERT(aPBackgroundChild);
+
+  // There is a chance we issued multiple callbacks for the same display ID,
+  // especially on startup while PBackground is still being set up.  Check that
+  // here, and avoid creating an unnecessary child.
+  RefPtr<layout::VsyncChild> child = sVsyncChildTable->GetWeak(aSourceID);
+  if (!child) {
+    // no, we need to construct it
+    layout::PVsyncChild* actor = aPBackgroundChild->SendPVsyncConstructor(aSourceID);
+    child = static_cast<layout::VsyncChild*>(actor);
+    // add it to the table
+    sVsyncChildTable->Put(aSourceID, child);
+
+    VSYNC_LOG("[%s]: Vsync actor %p created for display ID %s\n", PARENT_OR_CHILD, child.get(), nsIDToCString(aSourceID).get());
+  }
+
+  gfx::VsyncSource* display = static_cast<gfx::VsyncSource*>(child.get());
+
+  aObserver->ObserveSource(display);
+}
+
+// impl for nsIWidget's generic version
+nsID
+nsIWidget::GetVsyncSourceIdentifier()
+{
+  return gfx::VsyncManager::kGlobalDisplaySourceID;
+}
+
+// the actual nsBaseWidget version
+nsID
+nsBaseWidget::GetVsyncSourceIdentifier()
+{
+  if (mIncomingVsyncObserver) {
+    return mIncomingVsyncObserver->GetObservedSourceID();
+  }
+
+  return mDesiredVsyncSourceID;
+}
+
+nsIWidget*
+nsBaseWidget::GetVsyncRootWidget()
+{
+  return GetTopLevelWidget();
+}
+
+/* static */ void
+nsBaseWidget::ForceUpdateVSyncObserver(nsBaseWidget *aWidget)
+{
+  aWidget->UpdateVsyncObserver();
+}
+
+void
+nsBaseWidget::UpdateVsyncObserver()
+{
+  // If we were already notified of shutdown, don't try to set up vsync
+  if (!mShutdownObserver) {
+    return;
+  }
+
+  if (!mIncomingVsyncObserver) {
+    mIncomingVsyncObserver = new VsyncForwardingObserver(this);
+    VSYNC_LOG("[%s]: Widget %p creating incoming vsync observer %p\n", PARENT_OR_CHILD, this, mIncomingVsyncObserver.get());
+#ifdef MOZ_NUWA_PROCESS
+    // After NUWA fork, make sure we set up the observer connection properly
+    NuwaAddConstructor((void (*)(void *))&ForceUpdateVSyncObserver, this);
+#endif
+  }
+
+  if (GetVsyncRootWidget() != this) {
+    // if we're not the root widget, then just observe the root widget which will
+    // forward to our own listeners.
+    mIncomingVsyncObserver->ObserveWidget(GetVsyncRootWidget());
+
+    VSYNC_LOG("[%s]: Widget %p observing root widget %p (vsync ID %s)\n", PARENT_OR_CHILD, this, GetVsyncRootWidget(),
+              nsIDToCString(mIncomingVsyncObserver->GetObservedSourceID()).get());
+
+    return;
+  }
+
+  mIncomingVsyncObserver->ObserveSourceID(mDesiredVsyncSourceID);
+
+  VSYNC_LOG("[%s]: Widget %p observing vsync ID %s\n", PARENT_OR_CHILD, this, nsIDToCString(mDesiredVsyncSourceID).get());
+}
+
+bool
+nsBaseWidget::AddVsyncObserver(gfx::VsyncObserver *aObserver)
+{
+  bool unpause = false;
+  {
+    MutexAutoLock lock(mVsyncObserversLock);
+    if (!mVsyncObservers.Contains(aObserver)) {
+      mVsyncObservers.AppendElement(aObserver);
+      VSYNC_LOG("[%s][%p] adding vsync observer %p, new count: %d\n", PARENT_OR_CHILD, this, aObserver, mVsyncObservers.Length());
+
+      // Unpause if this is the first one we just added
+      unpause = mVsyncObservers.Length() == 1;
+    }
+  }
+  if (unpause && mIncomingVsyncObserver) {
+    mIncomingVsyncObserver->Unpause();
+  }
+  return true;
+}
+
+bool
+nsBaseWidget::RemoveVsyncObserver(gfx::VsyncObserver *aObserver)
+{
+  bool result;
+  bool pause = false;
+  {
+    MutexAutoLock lock(mVsyncObserversLock);
+    result = mVsyncObservers.RemoveElement(aObserver);
+    VSYNC_LOG("[%s][%p] removing vsync observer %p, new count: %d\n", PARENT_OR_CHILD, this, aObserver, mVsyncObservers.Length());
+
+    // Pause if the last observer was removed
+    pause = mVsyncObservers.Length() == 0;
+  }
+  if (pause && mIncomingVsyncObserver) {
+    mIncomingVsyncObserver->Pause();
+  }
+  return result;
+}
+
+void
+nsBaseWidget::ForwardVsyncNotification(TimeStamp aVsyncTimestamp)
+{
+  if (!mShutdownObserver) {
+    // shutting down; don't forward any vsync events
+    return;
+  }
+
+  nsTArray<RefPtr<gfx::VsyncObserver>> observersCopy;
+  {
+    MutexAutoLock lock(mVsyncObserversLock);
+    observersCopy.AppendElements(mVsyncObservers);
+  }
+
+  for (size_t i = 0; i < observersCopy.Length(); ++i) {
+    observersCopy[i]->NotifyVsync(aVsyncTimestamp);
   }
 }
 
-CompositorVsyncDispatcher*
-nsBaseWidget::GetCompositorVsyncDispatcher()
+void
+nsBaseWidget::ShutdownVsync()
 {
-  return mCompositorVsyncDispatcher;
+  DestroyVsync();
+
+  if (sVsyncChildTable) {
+    delete sVsyncChildTable;
+    sVsyncChildTable = nullptr;
+  }
+}
+
+void
+nsBaseWidget::DestroyVsync()
+{
+  mVsyncObservers.Clear();
+
+  if (mIncomingVsyncObserver) {
+    mIncomingVsyncObserver->Destroy();
+    mIncomingVsyncObserver = nullptr;
+  }
 }
 
 void nsBaseWidget::CreateCompositor(int aWidth, int aHeight)
@@ -1192,7 +1521,6 @@ void nsBaseWidget::CreateCompositor(int aWidth, int aHeight)
     return;
   }
 
-  CreateCompositorVsyncDispatcher();
   mCompositorParent = NewCompositorParent(aWidth, aHeight);
   RefPtr<ClientLayerManager> lm = new ClientLayerManager(this);
   mCompositorChild = new CompositorChild(lm);
@@ -1234,7 +1562,6 @@ void nsBaseWidget::CreateCompositor(int aWidth, int aHeight)
     mLayerManager = nullptr;
     mCompositorChild = nullptr;
     mCompositorParent = nullptr;
-    mCompositorVsyncDispatcher = nullptr;
     return;
   }
 
@@ -1972,6 +2299,70 @@ nsBaseWidget::UnregisterPluginWindowForRemoteUpdates()
   MOZ_ASSERT(sPluginWidgetList);
   sPluginWidgetList->Remove(id);
 #endif
+}
+
+void
+nsBaseWidget::ParentChanged()
+{
+  // Our hierarchy changed, so make sure we're still observing
+  // the right widget (if we have a parent) or source (if we don't).
+  if (mIncomingVsyncObserver) {
+    UpdateVsyncObserver();
+  }
+}
+
+//-------------------------------------------------------------------------
+//
+// Close this nsBaseWidget
+//
+//-------------------------------------------------------------------------
+NS_METHOD nsBaseWidget::Destroy()
+{
+  VSYNC_LOG("%p nsBaseWidget::Destroy\n", this);
+
+  // Just in case our parent is the only ref to us
+  nsCOMPtr<nsIWidget> kungFuDeathGrip(this);
+
+  // Do this before disconnecting from parent, to avoid
+  // churning the vsync observer during forwarding
+  DestroyVsync();
+
+  // Destroy the layer manager, which will 
+  DestroyLayerManager();
+
+  // disconnect from the parent
+  nsIWidget *parent = GetParent();
+  if (parent) {
+    parent->RemoveChild(this);
+  }
+
+  return NS_OK;
+}
+
+//-------------------------------------------------------------------------
+//
+// nsBaseWidget destructor
+//
+//-------------------------------------------------------------------------
+nsBaseWidget::~nsBaseWidget()
+{
+  VSYNC_LOG("%p nsBaseWidget::~nsBaseWidget\n", this);
+
+  if (mLayerManager &&
+      mLayerManager->GetBackendType() == LayersBackend::LAYERS_BASIC) {
+    static_cast<BasicLayerManager*>(mLayerManager.get())->ClearRetainerWidget();
+  }
+
+  DestroyVsync();
+  FreeShutdownObserver();
+  DestroyLayerManager();
+
+#ifdef NOISY_WIDGET_LEAKS
+  gNumWidgets--;
+  printf("WIDGETS- = %d\n", gNumWidgets);
+#endif
+
+  delete mOriginalBounds;
 }
 
 // static

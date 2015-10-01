@@ -198,6 +198,7 @@
 #include "GMPServiceChild.h"
 #include "GMPDecoderModule.h"
 #include "gfxPlatform.h"
+#include "gfxVsync.h"
 #include "nscore.h" // for NS_FREE_PERMANENT_DATA
 
 using namespace mozilla;
@@ -886,14 +887,15 @@ ContentChild::ProvideWindowCommon(TabChild* aTabOpener,
         renderFrame = nullptr;
     }
 
-  ShowInfo showInfo(EmptyString(), false, false, true, 0, 0);
+  ShowInfo showInfo(EmptyString(), false, false, true, 0, 0, gfx::VsyncManager::kGlobalDisplaySourceID);
   nsCOMPtr<nsPIDOMWindow> opener = do_QueryInterface(aParent);
   nsIDocShell* openerShell;
   if (opener && (openerShell = opener->GetDocShell())) {
     nsCOMPtr<nsILoadContext> context = do_QueryInterface(openerShell);
     showInfo = ShowInfo(EmptyString(), false,
                         context->UsePrivateBrowsing(), true,
-                        aTabOpener->mDPI, aTabOpener->mDefaultScale);
+                        aTabOpener->mDPI, aTabOpener->mDefaultScale,
+                        gfx::VsyncManager::kGlobalDisplaySourceID);
   }
 
     // Unfortunately we don't get a window unless we've shown the frame.  That's

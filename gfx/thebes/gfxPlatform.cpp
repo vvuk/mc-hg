@@ -122,8 +122,7 @@ class mozilla::gl::SkiaGLGlue : public GenericAtomicRefCounted {
 
 #include "nsIGfxInfo.h"
 #include "nsIXULRuntime.h"
-#include "VsyncSource.h"
-#include "SoftwareVsyncSource.h"
+#include "gfxVsync.h"
 #include "nscore.h" // for NS_FREE_PERMANENT_DATA
 #include "mozilla/dom/ContentChild.h"
 
@@ -628,9 +627,9 @@ gfxPlatform::Init()
 
     if (XRE_IsParentProcess()) {
       if (gfxPlatform::ForceSoftwareVsync()) {
-        gPlatform->mVsyncSource = (gPlatform)->gfxPlatform::CreateHardwareVsyncSource();
+        gPlatform->mVsyncManager = (gPlatform)->gfxPlatform::CreateHardwareVsyncManager();
       } else {
-        gPlatform->mVsyncSource = gPlatform->CreateHardwareVsyncSource();
+        gPlatform->mVsyncManager = gPlatform->CreateHardwareVsyncManager();
       }
     }
 }
@@ -679,7 +678,10 @@ gfxPlatform::Shutdown()
 
         gPlatform->mMemoryPressureObserver = nullptr;
         gPlatform->mSkiaGlue = nullptr;
-        gPlatform->mVsyncSource = nullptr;
+        if (gPlatform->mVsyncManager) {
+          gPlatform->mVsyncManager->Shutdown();
+          gPlatform->mVsyncManager = nullptr;
+        }
     }
 
 #ifdef MOZ_WIDGET_ANDROID
@@ -2078,19 +2080,20 @@ gfxPlatform::UsesOffMainThreadCompositing()
   return result;
 }
 
-/***
- * The preference "layout.frame_rate" has 3 meanings depending on the value:
- *
- * -1 = Auto (default), use hardware vsync or software vsync @ 60 hz if hw vsync fails.
- *  0 = ASAP mode - used during talos testing.
- *  X = Software vsync at a rate of X times per second.
- */
-already_AddRefed<mozilla::gfx::VsyncSource>
-gfxPlatform::CreateHardwareVsyncSource()
+already_AddRefed<VsyncManager>
+gfxPlatform::CreateHardwareVsyncManager()
 {
   NS_WARNING("Hardware Vsync support not yet implemented. Falling back to software timers");
-  RefPtr<mozilla::gfx::VsyncSource> softwareVsync = new SoftwareVsyncSource();
-  return softwareVsync.forget();
+  return CreateSoftwareVsyncManager();
+}
+
+already_AddRefed<VsyncManager>
+gfxPlatform::CreateSoftwareVsyncManager()
+{
+  RefPtr<SoftwareVsyncSource> display = new SoftwareVsyncSource(VsyncManager::kGlobalDisplaySourceID);
+  RefPtr<VsyncManager> vsyncManager = new VsyncManager();
+  vsyncManager->RegisterSource(display);
+  return vsyncManager.forget();
 }
 
 /* static */ bool
@@ -2101,7 +2104,7 @@ gfxPlatform::IsInLayoutAsapMode()
   // the second is that the compositor goes ASAP and the refresh driver
   // goes at whatever the configurated rate is. This only checks the version
   // talos uses, which is the refresh driver and compositor are in lockstep.
-  return Preferences::GetInt("layout.frame_rate", -1) == 0;
+  return gfxPrefs::LayoutFrameRate() == 0;
 }
 
 /* static */ bool

@@ -35,7 +35,7 @@
 #include "nsAutoPtr.h"                  // for nsRefPtr
 #include "nsISupportsImpl.h"
 #include "ThreadSafeRefcountingWithMainThreadDestruction.h"
-#include "mozilla/VsyncDispatcher.h"
+#include "gfxVsync.h"
 
 class CancelableTask;
 class MessageLoop;
@@ -136,11 +136,11 @@ private:
   void DispatchTouchEvents(TimeStamp aVsyncTimestamp);
   void CancelCurrentSetNeedsCompositeTask();
 
-  class Observer final : public VsyncObserver
+  class Observer final : public gfx::VsyncObserver
   {
   public:
     explicit Observer(CompositorVsyncScheduler* aOwner);
-    virtual bool NotifyVsync(TimeStamp aVsyncTimestamp) override;
+    virtual void NotifyVsync(TimeStamp aVsyncTimestamp) override;
     void Destroy();
   private:
     virtual ~Observer();
@@ -162,7 +162,7 @@ private:
   bool mIsObservingVsync;
   uint32_t mNeedsComposite;
   int32_t mVsyncNotificationsSkipped;
-  RefPtr<CompositorVsyncDispatcher> mCompositorVsyncDispatcher;
+
   RefPtr<CompositorVsyncScheduler::Observer> mVsyncObserver;
 
   mozilla::Monitor mCurrentCompositeTaskMonitor;

@@ -104,6 +104,7 @@
 #include "nsIScriptError.h"
 #include "mozilla/EventForwards.h"
 #include "nsDeviceContext.h"
+#include "gfxVsync.h"
 
 #define BROWSER_ELEMENT_CHILD_SCRIPT \
     NS_LITERAL_STRING("chrome://global/content/BrowserElementChild.js")
@@ -1465,6 +1466,9 @@ TabChild::ApplyShowInfo(const ShowInfo& aInfo)
   }
   mDPI = aInfo.dpi();
   mDefaultScale = aInfo.defaultScale();
+  if (mPuppetWidget) {
+    mPuppetWidget->SetVsyncSourceID(aInfo.vsyncDisplayID());
+  }
 }
 
 #ifdef MOZ_WIDGET_GONK

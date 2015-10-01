@@ -12,6 +12,8 @@
 #include "gfxPlatform.h"
 #include "gfxDrawable.h"
 #include "imgIEncoder.h"
+#include "mozilla/unused.h"
+#include "mozilla/DebugOnly.h"
 #include "mozilla/Base64.h"
 #include "mozilla/dom/ImageEncoder.h"
 #include "mozilla/dom/WorkerPrivate.h"
@@ -1669,6 +1671,7 @@ gfxUtils::ThreadSafeGetFeatureStatus(const nsCOMPtr<nsIGfxInfo>& gfxInfo,
   }
 
   return gfxInfo->GetFeatureStatus(feature, status);
+}
 
 /* static */ void
 gfxUtils::GenerateUUID(nsID* aID)
@@ -1677,7 +1680,7 @@ gfxUtils::GenerateUUID(nsID* aID)
       do_GetService("@mozilla.org/uuid-generator;1");
   MOZ_ASSERT(uuidgen, "Couldn't get UUID generator");
 
-  nsresult rv = uuidgen->GenerateUUIDInPlace(aID);
+  DebugOnly<nsresult> rv = uuidgen->GenerateUUIDInPlace(aID);
   MOZ_ASSERT(NS_SUCCEEDED(rv), "Generating UUID failed");
 }
 

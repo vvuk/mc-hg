@@ -40,6 +40,10 @@ namespace gl {
     class GLContext;
 }
 
+namespace gfx {
+class VsyncSource;
+}
+
 namespace layers {
 class CompositorParent;
 class Layer;
@@ -113,6 +117,7 @@ private:
     bool                    mHasHWVsync;
     layers::CompositorParent* mCompositorParent;
     Mutex mLock;
+    RefPtr<gfx::VsyncSource> mVsyncSource;
 };
 
 } // namespace mozilla
