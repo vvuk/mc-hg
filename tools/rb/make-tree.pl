@@ -55,7 +55,7 @@ if ($::opt_exclude) {
          || die "unable to open $::opt_exclude";
  
      while (<EXCLUDE>) {
-         chomp $_;
+         $_ =~ s/\s+$//;
          warn "excluding $_\n";
          $excludes{$_} = 1;
      }
@@ -84,6 +84,7 @@ sub read_data($$$) {
      my ($INFILE, $plus, $minus) = @_;
 
      LINE: while (<$INFILE>) {
+          $_ =~ s/\s+$//;
           next LINE if (! /^</);
           my @fields = split(/ /, $_);
      
@@ -104,7 +105,7 @@ sub read_data($$$) {
           # parse the output. So we set the frame number to 0 for every frame.
           my @stack;
           CALLSITE: while (<$INFILE>) {
-              chomp;
+              $_ =~ s/\s+$//;
               last CALLSITE if (/^$/);
               $_ =~ s/#\d+: /#00: /;    # replace frame number with 0
               $stack[++$#stack] = $_;
