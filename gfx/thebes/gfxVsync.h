@@ -29,8 +29,14 @@ class VsyncObserver
 {
   friend class VsyncSource;
 
-  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(VsyncObserver)
-
+public:
+  // We need virtual AddRef/Release, so we can't do this
+  //NS_INLINE_DECL_THREADSAFE_REFCOUNTING(VsyncObserver)
+  NS_IMETHOD_(MozExternalRefCountType) AddRef(void);
+  NS_IMETHOD_(MozExternalRefCountType) Release(void);
+protected:
+  ::mozilla::ThreadSafeAutoRefCnt mRefCnt;
+  NS_DECL_OWNINGTHREAD
 public:
   // The method called when a vsync occurs. Return true if some work was done.
   // In general, this vsync notification will occur on the hardware vsync

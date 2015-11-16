@@ -19,6 +19,9 @@ namespace gfx {
 // the internal helper GetSourceIndex returns this if the source is not found
 static const int32_t kSourceNotFound = -1;
 
+NS_IMPL_ADDREF(VsyncObserver)
+NS_IMPL_RELEASE(VsyncObserver)
+
 /**
  * base VsyncSource implementation
  */

@@ -127,7 +127,14 @@ public:
 
   RefreshDriverTimerType GetType() const { return mTimerType; }
 
-  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(RefreshDriverTimer);
+  // We need virtual AddRef/Release, so we can't do this
+  //NS_INLINE_DECL_THREADSAFE_REFCOUNTING(RefreshDriverTimer);
+  NS_IMETHOD_(MozExternalRefCountType) AddRef(void);
+  NS_IMETHOD_(MozExternalRefCountType) Release(void);
+protected:
+  ::mozilla::ThreadSafeAutoRefCnt mRefCnt;
+  NS_DECL_OWNINGTHREAD
+public:
 
   virtual void AddRefreshDriver(nsRefreshDriver* aDriver)
   {
@@ -299,6 +306,9 @@ protected:
   }
 };
 
+NS_IMPL_ADDREF(RefreshDriverTimer)
+NS_IMPL_RELEASE(RefreshDriverTimer)
+
 /*
  * A RefreshDriverTimer that uses a nsITimer as the underlying timer.  Note that
  * this is a ONE_SHOT timer, not a repeating one!  Subclasses are expected to
@@ -366,20 +376,23 @@ protected:
  * vsync events and wait to catch up again.
  */
 class WidgetVsyncRefreshDriverTimer :
-    public RefreshDriverTimer
+    public RefreshDriverTimer,
+    public gfx::VsyncObserver
 {
 public:
+  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(WidgetVsyncRefreshDriverTimer, override);
+
   explicit WidgetVsyncRefreshDriverTimer(nsIWidget *aWidget)
     : mWidget(aWidget)
-    , mProcessedVsync(true)
     , mMostRecentVsync(TimeStamp::Now())
     , mLastTick(TimeStamp::Now())
     , mVsyncRate(TimeDuration::Forever())
+    , mRunning(false)
+    , mRefreshTickLock("WidgetVsync InnerVsyncObserver RefreshTickLock")
   {
     MOZ_ASSERT(NS_IsMainThread());
 
     mTimerType = eTimerWidgetVsync;
-    mInnerObserver = new InnerVsyncObserver(this);
   }
 
   nsIWidget* GetWidget() const { return mWidget; }
@@ -399,96 +412,46 @@ protected:
     RefPtr<WidgetVsyncRefreshDriverTimer> mTimer;
   };
 
-  // This inner observer class breaks a ref cycle -- the widget will
-  // hold a ref to it in its list of vsync observers, and the
-  // RefreshDriverTimer will hold a ref to it as its inner observer.
-  // When the RefreshDriverTimer is destroyed due to its refcount
-  // going to 0, it can do proper cleanup and remove the inner
-  // observer from the widget's observer list.
-  //
-  // If this were all in one class (if WidgetVsyncRefreshDriverTimer were
-  // to inherit from both RefreshDriverTimer and VsyncObserver), the WVRDT
-  // would never be destroyed because the widget would own a ref to it in
-  // its observers list, and we'd never have a place to remove it unless
-  // StopTimer were explicitly called before all other refs to it went away.
-  class InnerVsyncObserver : public gfx::VsyncObserver {
-  public:
-    explicit InnerVsyncObserver(WidgetVsyncRefreshDriverTimer *aTimer)
-      : mRefreshTickLock("WidgetVsync InnerVsyncObserver RefreshTickLock")
-      , mTimer(aTimer)
-    {}
-
-    void NotifyVsync(TimeStamp aVsyncTimestamp) override
-    {
-      MOZ_ASSERT(!aVsyncTimestamp.IsNull());
-      RefPtr<WidgetVsyncRefreshDriverTimer> timer;
-      
-      if (!NS_IsMainThread()) {
-        MonitorAutoLock lock(mRefreshTickLock);
-
-        // A situation could occur where the
-        // WidgetVsyncRefreshDriverTimer's refcnt went to 0 and the
-        // destructor is being called, when both the destructor and
-        // this notification happen at the same time.  If the
-        // destructor's monitor-procted block runs first, then mTimer
-        // will be null, and we'll skip this.  If this block runs
-        // first, then the timer's refcnt will be 0 (since delete was
-        // already called, or was about to be called), so we
-        // explicitly check for that.
-        if (mTimer && int32_t(mTimer->mRefCnt) == 0) {
-          return;
-        }
-        
-        timer = mTimer;
-        if (!timer) {
-          return;
-        }
-
-        // Compress vsync notifications such that only 1 may run at a time; if
-        // our previous one still wasn't processed, just bump the most recent time
-        // and let it trigger.  Otherwise schedule a new one.
-        timer->mMostRecentVsync = aVsyncTimestamp;
-        if (!timer->mTickRunnable) {
-          timer->mTickRunnable = new TickWithMostRecentRunnable(timer);
-          NS_DispatchToMainThread(timer->mTickRunnable);
-        }
-      } else {
-        timer = mTimer;
-        if (!timer) {
-          return;
-        }
-
-        timer->TickRefreshDriver(aVsyncTimestamp);
-      }
-    }
-
-    Monitor mRefreshTickLock;
-    WidgetVsyncRefreshDriverTimer *mTimer;
-  };
-
-  friend class InnerVsyncObserver;
-
-  ~WidgetVsyncRefreshDriverTimer()
+  // gfx::VsyncObserver
+  void NotifyVsync(TimeStamp aVsyncTimestamp) override
   {
-    VSYNC_LOG("[%s][%p] RefreshDriverTimer removing widget vsync observer %p (destructor)\n", PARENT_STR, this, mInnerObserver.get());
+    MOZ_ASSERT(!aVsyncTimestamp.IsNull());
+      
+    if (!NS_IsMainThread()) {
+      MonitorAutoLock lock(mRefreshTickLock);
 
-    if (mInnerObserver) { // scope lock
-      MonitorAutoLock lock(mInnerObserver->mRefreshTickLock);
-
-      mWidget->RemoveVsyncObserver(mInnerObserver);
-      if (!NS_IsMainThread()) {
-        NS_ReleaseOnMainThread(mWidget);
-      } else {
-        mWidget = nullptr;
+      // Were we stopped while another thread was about to execute our
+      // notify?  The notifications get sent after a copy of the
+      // observers is made; so a copy could be made that includes this
+      // observer, but then it gets removed.
+      if (!mRunning) {
+        return;
       }
 
-      if (mTickRunnable) {
-        mTickRunnable->Cancel();
+      // Compress vsync notifications such that only 1 may run at a time; if
+      // our previous one still wasn't processed, just bump the most recent time
+      // and let it trigger.  Otherwise schedule a new one.
+      mMostRecentVsync = aVsyncTimestamp;
+      if (!mTickRunnable) {
+        mTickRunnable = new TickWithMostRecentRunnable(this);
+        NS_DispatchToMainThread(mTickRunnable);
       }
-      mInnerObserver->mTimer = nullptr;
+    } else {
+      MOZ_ASSERT(mRunning, "How did we get to a main-thread NotifyVsync with mRunning == false?");
+      TickRefreshDriver(aVsyncTimestamp);
     }
-    // free this outside the lock, because it needs to delete the Monitor
-    mInnerObserver = nullptr;
+  }
+
+  virtual ~WidgetVsyncRefreshDriverTimer()
+  {
+    VSYNC_LOG("[%s][%p] destructor\n", PARENT_STR, this);
+    MOZ_ASSERT(!mRunning, "~WidgetVsyncRefreshDriverTimer, but the timer thinks it's still running!");
+    
+    if (!NS_IsMainThread()) {
+      NS_ReleaseOnMainThread(mWidget);
+    } else {
+      mWidget = nullptr;
+    }
   }
 
   void TickRefreshDriverWithMostRecent()
@@ -496,9 +459,14 @@ protected:
     TimeStamp vsyncTime;
 
     { // scope lock
-      MonitorAutoLock lock(mInnerObserver->mRefreshTickLock);
+      MonitorAutoLock lock(mRefreshTickLock);
       vsyncTime = mMostRecentVsync;
       mTickRunnable = nullptr;
+
+      // are we no longer actually running?
+      if (!mRunning) {
+        return;
+      }
     }
 
     TickRefreshDriver(vsyncTime);
@@ -535,6 +503,7 @@ protected:
   void TickRefreshDriver(TimeStamp aVsyncTimestamp)
   {
     MOZ_ASSERT(NS_IsMainThread());
+    MOZ_ASSERT(mRunning, "TickRefreshDriver, but mRunning == false?");
 
     RecordTelemetryProbes(aVsyncTimestamp);
 
@@ -557,14 +526,24 @@ protected:
     mLastFireTime = TimeStamp::Now();
     mLastTick = TimeStamp::Now();
 
-    VSYNC_LOG("[%s][%p] RefreshDriverTimer adding widget vsync observer %p\n", PARENT_STR, this, mInnerObserver.get());
-    mWidget->AddVsyncObserver(mInnerObserver);
+    VSYNC_LOG("[%s][%p] RefreshDriverTimer adding widget vsync observer\n", PARENT_STR, this);
+    mRunning = true;
+    mWidget->AddVsyncObserver(this);
   }
 
   virtual void StopTimer() override
   {
-    VSYNC_LOG("[%s][%p] RefreshDriverTimer removing widget vsync observer %p (stop)\n", PARENT_STR, this, mInnerObserver.get());
-    mWidget->RemoveVsyncObserver(mInnerObserver);
+    VSYNC_LOG("[%s][%p] RefreshDriverTimer removing widget vsync observer\n", PARENT_STR, this);
+
+    { // scope lock
+      MonitorAutoLock lock(mRefreshTickLock);
+      mRunning = false;
+      mWidget->RemoveVsyncObserver(this);
+      if (mTickRunnable) {
+        mTickRunnable->Cancel();
+        mTickRunnable = nullptr;
+      }
+    }
   }
 
   virtual void ScheduleNextTick(TimeStamp aNowTime) override
@@ -582,12 +561,12 @@ protected:
   }
 
   nsCOMPtr<nsIWidget> mWidget;
-  bool mProcessedVsync;
   TimeStamp mMostRecentVsync;
   TimeStamp mLastTick;
   TimeDuration mVsyncRate;
+  bool mRunning;
+  Monitor mRefreshTickLock;
 
-  RefPtr<InnerVsyncObserver> mInnerObserver;
   nsCOMPtr<nsICancelableRunnable> mTickRunnable;
 }; // WidgetVsyncRefreshDriverTimer
 
