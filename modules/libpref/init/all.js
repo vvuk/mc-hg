@@ -4811,6 +4811,8 @@ pref("dom.vr.poseprediction.enabled", false);
 // true = show the VR textures in our compositing output; false = don't.
 // true might have performance impact
 pref("gfx.vr.mirror-textures", false);
+// oculus perf hud display value; valid values are integers selecting different displays
+pref("dom.vr.oculus.perfhud", 0);
 
 // MMS UA Profile settings
 pref("wap.UAProf.url", "");

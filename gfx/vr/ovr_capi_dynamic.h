@@ -450,6 +450,8 @@ typedef ovrResult (OVR_PFN *pfn_ovr_SubmitFrame)(ovrSession session, unsigned in
 typedef double (OVR_PFN *pfn_ovr_GetPredictedDisplayTime)(ovrSession session, long long frameIndex);
 typedef double (OVR_PFN *pfn_ovr_GetTimeInSeconds)();
 
+#define OVR_PERF_HUD_MODE "PerfHudMode"
+
 typedef enum {
   ovrPerfHud_Off = 0,
   ovrPerfHud_LatencyTiming = 1,

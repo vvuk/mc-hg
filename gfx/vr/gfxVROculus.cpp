@@ -47,6 +47,7 @@ static pfn_ovr_GetRenderDesc ovr_GetRenderDesc = nullptr;
 
 static pfn_ovr_DestroySwapTextureSet ovr_DestroySwapTextureSet = nullptr;
 static pfn_ovr_SubmitFrame ovr_SubmitFrame = nullptr;
+static pfn_ovr_SetInt ovr_SetInt = nullptr;
 
 #ifdef XP_WIN
 static pfn_ovr_CreateSwapTextureSetD3D11 ovr_CreateSwapTextureSetD3D11 = nullptr;
@@ -177,6 +178,7 @@ InitializeOculusCAPI()
 
   REQUIRE_FUNCTION(ovr_DestroySwapTextureSet);
   REQUIRE_FUNCTION(ovr_SubmitFrame);
+  REQUIRE_FUNCTION(ovr_SetInt);
 #ifdef XP_WIN
   REQUIRE_FUNCTION(ovr_CreateSwapTextureSetD3D11);
 #endif
@@ -229,6 +231,7 @@ HMDInfoOculus::HMDInfoOculus(ovrSession aSession)
   : VRHMDInfo(VRHMDType::Oculus, false)
   , mSession(aSession)
   , mInputFrameID(0)
+  , mPerfHudMode(0)
 {
   MOZ_ASSERT(sizeof(HMDInfoOculus::DistortionVertex) == sizeof(VRDistortionVertex),
              "HMDInfoOculus::DistortionVertex must match the size of VRDistortionVertex");
@@ -531,6 +534,11 @@ HMDInfoOculus::SubmitFrame(RenderTargetSet *aRTSet, int32_t aInputFrameID)
     // Sanity check to prevent invalid memory access on builds with assertions
     // disabled.
     aInputFrameID = 0;
+  }
+
+  if (mPerfHudMode != gfxPrefs::VROculusPerfHudMode()) {
+    mPerfHudMode = gfxPrefs::VROculusPerfHudMode();
+    ovr_SetInt(mSession, OVR_PERF_HUD_MODE, mPerfHudMode);
   }
 
   VRHMDSensorState sensorState = mLastSensorState[aInputFrameID % kMaxLatencyFrames];
