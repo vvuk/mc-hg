@@ -7,6 +7,7 @@
 #define GFX_PLATFORM_H
 
 #include "mozilla/Logging.h"
+#include "mozilla/TimeStamp.h"
 #include "mozilla/gfx/Types.h"
 #include "nsTArray.h"
 #include "nsString.h"
@@ -49,7 +50,7 @@ class SourceSurface;
 class DataSourceSurface;
 class ScaledFont;
 class DrawEventRecorder;
-class VsyncSource;
+class VsyncManager;
 class DeviceInitData;
 
 inline uint32_t
@@ -564,10 +565,19 @@ public:
      * Get the hardware vsync source for each platform.
      * Should only exist and be valid on the parent process
      */
-    virtual mozilla::gfx::VsyncSource* GetHardwareVsync() {
-      MOZ_ASSERT(mVsyncSource != nullptr);
+    virtual mozilla::gfx::VsyncManager* GetHardwareVsync() {
+      MOZ_ASSERT(mVsyncManager != nullptr);
       MOZ_ASSERT(XRE_IsParentProcess());
-      return mVsyncSource;
+      return mVsyncManager;
+    }
+
+    /**
+     * Returns the current Vsync rate/interval in use for the default display,
+     * whether hardware or software.
+     */
+    static int32_t GetVsyncRate();
+    static mozilla::TimeDuration GetVsyncInterval() {
+        return mozilla::TimeDuration::FromMilliseconds(1000.0 / double(GetVsyncRate()));
     }
 
     /**
@@ -578,19 +588,22 @@ public:
     static bool IsInLayoutAsapMode();
 
     /**
-     * Returns the software vsync rate to use.
+     * Returns the software vsync rate to use.  Reads layout.frame_rate.
+     * If pref > 0, returns it directly.
+     * If pref == 0, this is "ASAP" mode; it returns 10000, in an effort to
+     * composite as fast as possible.
+     * If pref < 0, this is "use the platform default rate".  As this is
+     * software, it returns 60.
      */
     static int GetSoftwareVsyncRate();
+    static mozilla::TimeDuration GetSoftwareVsyncInterval() {
+        return mozilla::TimeDuration::FromMilliseconds(1000.0 / double(GetSoftwareVsyncRate()));
+    }
 
     /**
      * Returns whether or not a custom vsync rate is set.
      */
     static bool ForceSoftwareVsync();
-
-    /**
-     * Returns the default frame rate for the refresh driver / software vsync.
-     */
-    static int GetDefaultFrameRate();
 
     /**
      * Used to test which input types are handled via APZ.
@@ -660,13 +673,19 @@ protected:
     /**
      * Initialized hardware vsync based on each platform.
      */
-    virtual already_AddRefed<mozilla::gfx::VsyncSource> CreateHardwareVsyncSource();
+    virtual already_AddRefed<mozilla::gfx::VsyncManager> CreateHardwareVsyncManager();
 
     // Returns whether or not layers should be accelerated by default on this platform.
     virtual bool AccelerateLayersByDefault();
 
     // Returns a prioritized list of available compositor backends for acceleration.
     virtual void GetAcceleratedCompositorBackends(nsTArray<mozilla::layers::LayersBackend>& aBackends);
+
+    /**
+     * Initialize software vsync; can be overriden by the platform, but a generic
+     * timer-based impl exists.
+     */
+    virtual already_AddRefed<mozilla::gfx::VsyncManager> CreateSoftwareVsyncManager();
 
     /**
      * Initialise the preferred and fallback canvas backends
@@ -740,7 +759,7 @@ protected:
     uint32_t mTotalSystemMemory;
 
     // Hardware vsync source. Only valid on parent process
-    RefPtr<mozilla::gfx::VsyncSource> mVsyncSource;
+    RefPtr<mozilla::gfx::VsyncManager> mVsyncManager;
 
     RefPtr<mozilla::gfx::DrawTarget> mScreenReferenceDrawTarget;
 

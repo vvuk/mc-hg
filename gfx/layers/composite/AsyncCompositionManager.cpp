@@ -44,7 +44,7 @@
 #include "GeckoProfiler.h"
 #include "FrameUniformityData.h"
 #include "TreeTraversal.h"
-#include "VsyncSource.h"
+#include "gfxVsync.h"
 
 struct nsCSSValueSharedList;
 
@@ -1423,7 +1423,8 @@ AsyncCompositionManager::TransformShadowTree(TimeStamp aCurrentFrame,
     // Advance APZ animations to the next expected vsync timestamp, if we can
     // get it.
     TimeStamp nextFrame = aCurrentFrame;
-    TimeDuration vsyncrate = gfxPlatform::GetPlatform()->GetHardwareVsync()->GetGlobalDisplay().GetVsyncRate();
+    RefPtr<VsyncSource> vsyncSource = gfxPlatform::GetPlatform()->GetHardwareVsync()->GetGlobalDisplaySource();
+    TimeDuration vsyncrate = vsyncSource->GetVsyncInterval();
     if (vsyncrate != TimeDuration::Forever()) {
       nextFrame += vsyncrate;
     }

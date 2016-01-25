@@ -23,7 +23,7 @@
 #include "nsServiceManagerUtils.h"
 #include "gfxPrefs.h"
 #include "cairo.h"
-#include "VsyncSource.h"
+#include "gfxVsync.h"
 
 #ifdef MOZ_WIDGET_ANDROID
 #include "AndroidBridge.h"
@@ -362,68 +362,52 @@ gfxAndroidPlatform::RequiresLinearZoom()
 }
 
 #ifdef MOZ_WIDGET_GONK
-class GonkVsyncSource final : public VsyncSource
+class HWCVsyncSource final : public VsyncSource
 {
+  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(HWCVsyncSource, override)
 public:
-  GonkVsyncSource()
+  HWCVsyncSource(const nsID& aSourceID)
+    : VsyncSource(aSourceID)
+    , mVsyncEnabled(false)
   {
   }
 
-  virtual Display& GetGlobalDisplay() override
+  virtual void EnableVsync() override
   {
-    return mGlobalDisplay;
+    MOZ_ASSERT(NS_IsMainThread());
+    if (IsVsyncEnabled()) {
+      return;
+    }
+    mVsyncEnabled = HwcComposer2D::GetInstance()->EnableVsync(true);
   }
 
-  class GonkDisplay final : public VsyncSource::Display
+  virtual void DisableVsync() override
   {
-  public:
-    GonkDisplay() : mVsyncEnabled(false)
-    {
+    MOZ_ASSERT(NS_IsMainThread());
+    if (!IsVsyncEnabled()) {
+      return;
     }
-
-    ~GonkDisplay()
-    {
-      DisableVsync();
-    }
-
-    virtual void EnableVsync() override
-    {
-      MOZ_ASSERT(NS_IsMainThread());
-      if (IsVsyncEnabled()) {
-        return;
-      }
-      mVsyncEnabled = HwcComposer2D::GetInstance()->EnableVsync(true);
-    }
-
-    virtual void DisableVsync() override
-    {
-      MOZ_ASSERT(NS_IsMainThread());
-      if (!IsVsyncEnabled()) {
-        return;
-      }
-      mVsyncEnabled = HwcComposer2D::GetInstance()->EnableVsync(false);
-    }
-
-    virtual bool IsVsyncEnabled() override
-    {
-      MOZ_ASSERT(NS_IsMainThread());
-      return mVsyncEnabled;
-    }
-  private:
-    bool mVsyncEnabled;
-  }; // GonkDisplay
-
-private:
-  virtual ~GonkVsyncSource()
-  {
+    mVsyncEnabled = HwcComposer2D::GetInstance()->EnableVsync(false);
   }
 
-  GonkDisplay mGlobalDisplay;
-}; // GonkVsyncSource
+  virtual bool IsVsyncEnabled() override
+  {
+    MOZ_ASSERT(NS_IsMainThread());
+    return mVsyncEnabled;
+  }
+
+protected:
+  ~HWCVsyncSource()
+  {
+    DisableVsync();
+  }
+
+  bool mVsyncEnabled;
+}; // HWCVsyncSource
 #endif
 
-already_AddRefed<mozilla::gfx::VsyncSource>
-gfxAndroidPlatform::CreateHardwareVsyncSource()
+already_AddRefed<mozilla::gfx::VsyncManager>
+gfxAndroidPlatform::CreateHardwareVsyncManager()
 {
     // Only enable true hardware vsync on kit-kat and L device. Jelly Bean has
     // inaccurate hardware vsync so disable on JB. Android pre-JB doesn't have
@@ -431,16 +415,18 @@ gfxAndroidPlatform::CreateHardwareVsyncSource()
     // L is android version 21, L-MR1 is 22, kit-kat is 19, 20 is kit-kat for
     // wearables.
 #if defined(MOZ_WIDGET_GONK) && (ANDROID_VERSION == 19 || ANDROID_VERSION >= 21)
-    RefPtr<GonkVsyncSource> vsyncSource = new GonkVsyncSource();
-    VsyncSource::Display& display = vsyncSource->GetGlobalDisplay();
-    display.EnableVsync();
-    if (!display.IsVsyncEnabled()) {
+    RefPtr<VsyncSource> globalDisplay = new HWCVsyncSource(VsyncManager::kGlobalDisplaySourceID);
+    globalDisplay->EnableVsync();
+    if (!globalDisplay->IsVsyncEnabled()) {
         NS_WARNING("Error enabling gonk vsync. Falling back to software vsync");
-        return gfxPlatform::CreateHardwareVsyncSource();
+        return gfxPlatform::CreateSoftwareVsyncManager();
     }
-    display.DisableVsync();
-    return vsyncSource.forget();
+    globalDisplay->DisableVsync();
+
+    RefPtr<VsyncManager> vsyncManager = new VsyncManager();
+    vsyncManager->RegisterSource(globalDisplay);
+    return vsyncManager.forget();
 #else
-    return gfxPlatform::CreateHardwareVsyncSource();
+    return gfxPlatform::CreateHardwareVsyncManager();
 #endif
 }

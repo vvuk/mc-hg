@@ -130,8 +130,7 @@ class mozilla::gl::SkiaGLGlue : public GenericAtomicRefCounted {
 #include "nsAlgorithm.h"
 #include "nsIGfxInfo.h"
 #include "nsIXULRuntime.h"
-#include "VsyncSource.h"
-#include "SoftwareVsyncSource.h"
+#include "gfxVsync.h"
 #include "nscore.h" // for NS_FREE_PERMANENT_DATA
 #include "mozilla/dom/ContentChild.h"
 #include "gfxVR.h"
@@ -744,9 +743,9 @@ gfxPlatform::Init()
 
     if (XRE_IsParentProcess()) {
       if (gfxPlatform::ForceSoftwareVsync()) {
-        gPlatform->mVsyncSource = (gPlatform)->gfxPlatform::CreateHardwareVsyncSource();
+        gPlatform->mVsyncManager = (gPlatform)->gfxPlatform::CreateHardwareVsyncManager();
       } else {
-        gPlatform->mVsyncSource = gPlatform->CreateHardwareVsyncSource();
+        gPlatform->mVsyncManager = gPlatform->CreateHardwareVsyncManager();
       }
     }
 
@@ -802,7 +801,11 @@ gfxPlatform::Shutdown()
 
         gPlatform->mMemoryPressureObserver = nullptr;
         gPlatform->mSkiaGlue = nullptr;
-        gPlatform->mVsyncSource = nullptr;
+
+        // we should have always created one
+        MOZ_ASSERT(gPlatform->mVsyncManager);
+        gPlatform->mVsyncManager->Shutdown();
+        gPlatform->mVsyncManager = nullptr;
     }
 
 #ifdef MOZ_WIDGET_ANDROID
@@ -2215,6 +2218,23 @@ gfxPlatform::UsesOffMainThreadCompositing()
   return result;
 }
 
+already_AddRefed<VsyncManager>
+gfxPlatform::CreateHardwareVsyncManager()
+{
+  NS_WARNING("Hardware Vsync support not yet implemented. Falling back to software timers");
+  return CreateSoftwareVsyncManager();
+}
+
+already_AddRefed<VsyncManager>
+gfxPlatform::CreateSoftwareVsyncManager()
+{
+  RefPtr<SoftwareVsyncSource> display = new SoftwareVsyncSource(VsyncManager::kGlobalDisplaySourceID,
+                                                                GetSoftwareVsyncInterval().ToMilliseconds());
+  RefPtr<VsyncManager> vsyncManager = new VsyncManager();
+  vsyncManager->RegisterSource(display);
+  return vsyncManager.forget();
+}
+
 /***
  * The preference "layout.frame_rate" has 3 meanings depending on the value:
  *
@@ -2222,13 +2242,6 @@ gfxPlatform::UsesOffMainThreadCompositing()
  *  0 = ASAP mode - used during talos testing.
  *  X = Software vsync at a rate of X times per second.
  */
-already_AddRefed<mozilla::gfx::VsyncSource>
-gfxPlatform::CreateHardwareVsyncSource()
-{
-  NS_WARNING("Hardware Vsync support not yet implemented. Falling back to software timers");
-  RefPtr<mozilla::gfx::VsyncSource> softwareVsync = new SoftwareVsyncSource();
-  return softwareVsync.forget();
-}
 
 /* static */ bool
 gfxPlatform::IsInLayoutAsapMode()
@@ -2238,30 +2251,39 @@ gfxPlatform::IsInLayoutAsapMode()
   // the second is that the compositor goes ASAP and the refresh driver
   // goes at whatever the configurated rate is. This only checks the version
   // talos uses, which is the refresh driver and compositor are in lockstep.
-  return Preferences::GetInt("layout.frame_rate", -1) == 0;
+  return gfxPrefs::LayoutFrameRate() == 0;
 }
 
 /* static */ bool
 gfxPlatform::ForceSoftwareVsync()
 {
-  return Preferences::GetInt("layout.frame_rate", -1) > 0;
+  return gfxPrefs::LayoutFrameRate() >= 0;
+}
+
+/* static */ int32_t
+gfxPlatform::GetVsyncRate()
+{
+  if (gPlatform && gPlatform->mVsyncManager) {
+    RefPtr<VsyncSource> screen = gPlatform->mVsyncManager->GetGlobalDisplaySource();
+    TimeDuration td = screen->GetVsyncInterval();
+    if (td != TimeDuration::Forever()) {
+      return NSToIntRound(1000.0 / td.ToMilliseconds());
+    }
+  }
+  return GetSoftwareVsyncRate();
 }
 
 /* static */ int
 gfxPlatform::GetSoftwareVsyncRate()
 {
-  int preferenceRate = Preferences::GetInt("layout.frame_rate",
-                                           gfxPlatform::GetDefaultFrameRate());
-  if (preferenceRate <= 0) {
-    return gfxPlatform::GetDefaultFrameRate();
+  int preferenceRate = gfxPrefs::LayoutFrameRate();
+  if (preferenceRate == 0) {
+    return 10000; // ASAP mode
+  }
+  if (preferenceRate < 0) {
+    return 60; // "use platform rate", but this is software
   }
   return preferenceRate;
-}
-
-/* static */ int
-gfxPlatform::GetDefaultFrameRate()
-{
-  return 60;
 }
 
 void
