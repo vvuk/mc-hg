@@ -4612,6 +4612,19 @@ XRE_GetProcessType()
   return mozilla::startup::sChildProcessType;
 }
 
+const char *
+XRE_GetProcessTypeString()
+{
+  switch (XRE_GetProcessType()) {
+  case GeckoProcessType_Default:      return "Parent";
+  case GeckoProcessType_Plugin:       return "Plugin";
+  case GeckoProcessType_Content:      return "Content";
+  case GeckoProcessType_IPDLUnitTest: return "IPDLUnitTest";
+  case GeckoProcessType_GMPlugin:     return "GMPlugin";
+  default:                            return "Unknown";
+  }
+}
+
 bool
 XRE_IsParentProcess()
 {
