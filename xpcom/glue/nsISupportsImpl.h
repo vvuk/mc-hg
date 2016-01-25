@@ -559,6 +559,15 @@ protected:                                                                    \
 public:
 
 /**
+ * Use this macro to declare pure virtual AddRef & Release methods, for
+ * implementation by derived classes.
+ */
+#define NS_INLINE_DECL_PURE_VIRTUAL_REFCOUNTING                               \
+public:                                                                       \
+  NS_IMETHOD_(MozExternalRefCountType) AddRef(void) = 0;                      \
+  NS_IMETHOD_(MozExternalRefCountType) Release(void) = 0;
+
+/**
  * Use this macro to implement the AddRef method for a given <i>_class</i>
  * @param _class The name of the class implementing the method
  */
