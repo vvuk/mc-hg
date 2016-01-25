@@ -3279,6 +3279,12 @@ ShowInfo
 TabParent::GetShowInfo()
 {
   TryCacheDPIAndScale();
+  nsCOMPtr<nsIWidget> widget = GetWidget();
+  nsID vsyncDisplay = gfx::VsyncManager::kGlobalDisplaySourceID;
+  if (widget) {
+    vsyncDisplay = widget->GetVsyncSourceIdentifier();
+  }
+
   if (mFrameElement) {
     nsAutoString name;
     mFrameElement->GetAttr(kNameSpaceID_None, nsGkAtoms::name, name);
@@ -3287,11 +3293,11 @@ TabParent::GetShowInfo()
       mFrameElement->HasAttr(kNameSpaceID_None, nsGkAtoms::mozallowfullscreen);
     bool isPrivate = mFrameElement->HasAttr(kNameSpaceID_None, nsGkAtoms::mozprivatebrowsing);
     return ShowInfo(name, allowFullscreen, isPrivate, false,
-                    mDPI, mDefaultScale.scale);
+                    mDPI, mDefaultScale.scale, vsyncDisplay);
   }
 
   return ShowInfo(EmptyString(), false, false, false,
-                  mDPI, mDefaultScale.scale);
+                  mDPI, mDefaultScale.scale, vsyncDisplay);
 }
 
 void

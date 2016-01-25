@@ -250,6 +250,7 @@ public:
   virtual nsresult ClearNativeTouchSequence(nsIObserver* aObserver) override;
   virtual uint32_t GetMaxTouchPoints() const override;
 
+
   virtual void StartAsyncScrollbarDrag(const AsyncDragMetrics& aDragMetrics) override;
 
   virtual void SetCandidateWindowForPlugin(
@@ -259,6 +260,9 @@ public:
                           const FrameMetrics::ViewID& aViewId,
                           const CSSRect& aRect,
                           const uint32_t& aFlags) override;
+
+  void SetVsyncSourceID(const nsID& aID);
+
 protected:
   virtual nsresult NotifyIMEInternal(
                      const IMENotification& aIMENotification) override;

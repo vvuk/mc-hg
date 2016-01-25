@@ -29,6 +29,9 @@ using namespace mozilla::gfx;
 using namespace mozilla::layers;
 using namespace mozilla::widget;
 
+extern PRLogModuleInfo *gVsyncLog;
+#define VSYNC_LOG(...)  MOZ_LOG(gVsyncLog, mozilla::LogLevel::Debug, (__VA_ARGS__))
+
 static void
 InvalidateRegion(nsIWidget* aWidget, const LayoutDeviceIntRegion& aRegion)
 {
@@ -1420,6 +1423,18 @@ PuppetWidget::ZoomToRect(const uint32_t& aPresShellId,
   }
 
   mTabChild->ZoomToRect(aPresShellId, aViewId, aRect, aFlags);
+}
+
+void
+PuppetWidget::SetVsyncSourceID(const nsID& aID)
+{
+  VSYNC_LOG("PuppetWidget[%p]::SetVsyncSourceID %s", this, nsIDToCString(aID).get());
+
+  if (aID == mDesiredVsyncSourceID)
+    return;
+
+  mDesiredVsyncSourceID = aID;
+  UpdateVsyncObserver();
 }
 
 } // namespace widget
