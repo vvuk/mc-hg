@@ -3147,7 +3147,7 @@ nsRootPresContext::InitApplyPluginGeometryTimer()
   // won't fire before our normal paint notifications, if those would
   // update the geometry, so set it for double the refresh driver interval.
   mApplyPluginGeometryTimer = CreateTimer(ApplyPluginGeometryUpdatesCallback,
-                                          nsRefreshDriver::DefaultInterval() * 2);
+                                          NSToIntRound(nsRefreshDriver::DefaultInterval() * 2));
 }
 
 void

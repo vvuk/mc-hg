@@ -294,7 +294,7 @@ public:
   /**
    * Default interval the refresh driver uses, in ms.
    */
-  static int32_t DefaultInterval();
+  static double DefaultInterval();
 
   bool IsInRefresh() { return mInRefresh; }
 
@@ -359,7 +359,7 @@ private:
   void DoRefresh();
 
   double GetRefreshTimerInterval() const;
-  double GetRegularTimerInterval(bool *outIsDefault = nullptr) const;
+  static double GetRegularTimerInterval();
   static double GetThrottledTimerInterval();
 
   static mozilla::TimeDuration GetMinRecomputeVisibilityInterval();
@@ -370,8 +370,8 @@ private:
 
   void FinishedWaitingForTransaction();
 
-  mozilla::RefreshDriverTimer* ChooseTimer() const;
-  mozilla::RefreshDriverTimer* mActiveTimer;
+  already_AddRefed<mozilla::RefreshDriverTimer> ChooseTimer() const;
+  RefPtr<mozilla::RefreshDriverTimer> mActiveTimer;
 
   ProfilerBacktrace* mReflowCause;
   ProfilerBacktrace* mStyleCause;
