@@ -41,7 +41,6 @@ class   nsIScreen;
 class   nsIRunnable;
 
 namespace mozilla {
-class CompositorVsyncDispatcher;
 namespace dom {
 class TabChild;
 } // namespace dom
@@ -61,6 +60,8 @@ struct ScrollableLayerGuid;
 namespace gfx {
 class DrawTarget;
 class SourceSurface;
+class VRHMDInfo;
+class VsyncObserver;
 } // namespace gfx
 namespace widget {
 class TextEventDispatcher;
@@ -345,7 +346,6 @@ class nsIWidget : public nsISupports {
     typedef mozilla::widget::TextEventDispatcher TextEventDispatcher;
     typedef mozilla::widget::TextEventDispatcherListener
       TextEventDispatcherListener;
-    typedef mozilla::CompositorVsyncDispatcher CompositorVsyncDispatcher;
     typedef mozilla::LayoutDeviceIntMargin LayoutDeviceIntMargin;
     typedef mozilla::LayoutDeviceIntPoint LayoutDeviceIntPoint;
     typedef mozilla::LayoutDeviceIntRect LayoutDeviceIntRect;
@@ -556,9 +556,26 @@ class nsIWidget : public nsISupports {
     virtual mozilla::DesktopToLayoutDeviceScale GetDesktopToDeviceScale() = 0;
 
     /**
-     * Returns the CompositorVsyncDispatcher associated with this widget
+     * Add or remove a vsync observer for this widget's vsync signal.
+     * These calls are safe to call from any thread.  The vsync
+     * notification may also arrive on any thread -- if your observer
+     * needs to execute on the main thread, make sure it forwards an
+     * event to the main thread.  It is also safe to add/remove
+     * observers from a vsync observer callback.
      */
-    virtual CompositorVsyncDispatcher* GetCompositorVsyncDispatcher() = 0;
+    virtual void AddVsyncObserver(mozilla::gfx::VsyncObserver *aObserver) { }
+    virtual void RemoveVsyncObserver(mozilla::gfx::VsyncObserver *aObserver) { }
+
+    /**
+     * Return the nsID for the source that this widget is observing vsync from.
+     */
+    virtual nsID GetVsyncSourceIdentifier();
+
+    /**
+     * A VsyncSource ID understood by widget to mean "listen to the parent widget's
+     * vsync, or if no parent widget, then an appropriate physical display".
+     */
+    static const nsID kWidgetDefaultVsyncSourceID;
 
     /**
      * Return the default scale factor for the window. This is the
@@ -1375,6 +1392,7 @@ class nsIWidget : public nsISupports {
     //@{
     virtual void AddChild(nsIWidget* aChild) = 0;
     virtual void RemoveChild(nsIWidget* aChild) = 0;
+    virtual void ParentChanged() = 0;
     virtual void* GetNativeData(uint32_t aDataType) = 0;
     virtual void SetNativeData(uint32_t aDataType, uintptr_t aVal) = 0;
     virtual void FreeNativeData(void * data, uint32_t aDataType) = 0;//~~~

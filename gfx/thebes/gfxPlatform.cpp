@@ -803,9 +803,11 @@ gfxPlatform::Shutdown()
         gPlatform->mSkiaGlue = nullptr;
 
         // we should have always created one
-        MOZ_ASSERT(gPlatform->mVsyncManager);
-        gPlatform->mVsyncManager->Shutdown();
-        gPlatform->mVsyncManager = nullptr;
+        if (XRE_IsParentProcess()) {
+          MOZ_ASSERT(gPlatform->mVsyncManager);
+          gPlatform->mVsyncManager->Shutdown();
+          gPlatform->mVsyncManager = nullptr;
+        }
     }
 
 #ifdef MOZ_WIDGET_ANDROID
