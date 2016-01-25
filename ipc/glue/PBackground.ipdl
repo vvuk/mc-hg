@@ -69,7 +69,9 @@ parent:
   // Use only for testing!
   async FlushPendingFileDeletions();
 
-  async PVsync();
+  // Create a PVsync for the given source ID.  If you don't know which one you need,
+  // use mozilla::gfx::VsyncManager::kGlobalDisplaySourceID
+  async PVsync(nsID aSourceID);
 
   async PCameras();
 

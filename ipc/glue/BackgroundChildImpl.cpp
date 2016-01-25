@@ -228,9 +228,9 @@ BackgroundChildImpl::DeallocPFileDescriptorSetChild(
 }
 
 BackgroundChildImpl::PVsyncChild*
-BackgroundChildImpl::AllocPVsyncChild()
+BackgroundChildImpl::AllocPVsyncChild(const nsID& aDisplayIdentifier)
 {
-  RefPtr<mozilla::layout::VsyncChild> actor = new mozilla::layout::VsyncChild();
+  RefPtr<mozilla::layout::VsyncChild> actor = new mozilla::layout::VsyncChild(aDisplayIdentifier);
   // There still has one ref-count after return, and it will be released in
   // DeallocPVsyncChild().
   return actor.forget().take();

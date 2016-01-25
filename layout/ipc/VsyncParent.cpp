@@ -11,7 +11,7 @@
 #include "mozilla/unused.h"
 #include "nsIThread.h"
 #include "nsThreadUtils.h"
-#include "VsyncSource.h"
+#include "gfxVsync.h"
 
 namespace mozilla {
 
@@ -20,12 +20,11 @@ using namespace ipc;
 namespace layout {
 
 /*static*/ already_AddRefed<VsyncParent>
-VsyncParent::Create()
+VsyncParent::Create(const nsID& aSourceID)
 {
   AssertIsOnBackgroundThread();
-  RefPtr<gfx::VsyncSource> vsyncSource = gfxPlatform::GetPlatform()->GetHardwareVsync();
   RefPtr<VsyncParent> vsyncParent = new VsyncParent();
-  vsyncParent->mVsyncDispatcher = vsyncSource->GetRefreshTimerVsyncDispatcher();
+  vsyncParent->mSourceID = aSourceID;
   return vsyncParent.forget();
 }
 
@@ -44,17 +43,20 @@ VsyncParent::~VsyncParent()
   // VsyncParent is always released on the background thread.
 }
 
-bool
+void
 VsyncParent::NotifyVsync(TimeStamp aTimeStamp)
 {
   // Called on hardware vsync thread. We should post to current ipc thread.
   MOZ_ASSERT(!IsOnBackgroundThread());
+
   nsCOMPtr<nsIRunnable> vsyncEvent =
     NS_NewRunnableMethodWithArg<TimeStamp>(this,
                                            &VsyncParent::DispatchVsyncEvent,
                                            aTimeStamp);
-  MOZ_ALWAYS_TRUE(NS_SUCCEEDED(mBackgroundThread->Dispatch(vsyncEvent, NS_DISPATCH_NORMAL)));
-  return true;
+
+  // This dispatch might fail, if we're in the middle of shutting down when
+  // a vsync comes in.  Ignore that failure.
+  mBackgroundThread->Dispatch(vsyncEvent, NS_DISPATCH_NORMAL);
 }
 
 void
@@ -73,11 +75,11 @@ VsyncParent::DispatchVsyncEvent(TimeStamp aTimeStamp)
 }
 
 bool
-VsyncParent::RecvRequestVsyncRate()
+VsyncParent::RecvRequestVsyncInterval()
 {
   AssertIsOnBackgroundThread();
-  TimeDuration vsyncRate = gfxPlatform::GetPlatform()->GetHardwareVsync()->GetGlobalDisplay().GetVsyncRate();
-  Unused << SendVsyncRate(vsyncRate.ToMilliseconds());
+  RefPtr<gfx::VsyncSource> source = gfxPlatform::GetPlatform()->GetHardwareVsync()->GetSource(mSourceID);
+  Unused << SendVsyncInterval(source->GetVsyncInterval().ToMilliseconds());
   return true;
 }
 
@@ -86,7 +88,8 @@ VsyncParent::RecvObserve()
 {
   AssertIsOnBackgroundThread();
   if (!mObservingVsync) {
-    mVsyncDispatcher->AddChildRefreshTimer(this);
+    RefPtr<gfx::VsyncSource> source = gfxPlatform::GetPlatform()->GetHardwareVsync()->GetSource(mSourceID);
+    source->AddVsyncObserver(this);
     mObservingVsync = true;
     return true;
   }
@@ -98,7 +101,8 @@ VsyncParent::RecvUnobserve()
 {
   AssertIsOnBackgroundThread();
   if (mObservingVsync) {
-    mVsyncDispatcher->RemoveChildRefreshTimer(this);
+    MOZ_ASSERT(AttachedSource(), "RecvUnobserve, but we don't seem to have a source attached?");
+    AttachedSource()->RemoveVsyncObserver(this);
     mObservingVsync = false;
     return true;
   }
@@ -110,10 +114,10 @@ VsyncParent::ActorDestroy(ActorDestroyReason aReason)
 {
   MOZ_ASSERT(!mDestroyed);
   AssertIsOnBackgroundThread();
-  if (mObservingVsync) {
-    mVsyncDispatcher->RemoveChildRefreshTimer(this);
+  if (mObservingVsync && AttachedSource()) {
+    AttachedSource()->RemoveVsyncObserver(this);
+    mObservingVsync = false;
   }
-  mVsyncDispatcher = nullptr;
   mDestroyed = true;
 }
 

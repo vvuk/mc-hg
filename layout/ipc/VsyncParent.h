@@ -7,13 +7,18 @@
 #define mozilla_layout_ipc_VsyncParent_h
 
 #include "mozilla/layout/PVsyncParent.h"
-#include "mozilla/VsyncDispatcher.h"
 #include "nsCOMPtr.h"
 #include "mozilla/RefPtr.h"
+#include "gfxVsync.h"
 
 class nsIThread;
 
 namespace mozilla {
+
+namespace gfx {
+class VsyncManager;
+class VsyncSource;
+} // namespace gfx
 
 namespace ipc {
 class BackgroundParentImpl;
@@ -25,18 +30,19 @@ namespace layout {
 // content process. This actor will be released when its parent protocol calls
 // DeallocPVsyncParent().
 class VsyncParent final : public PVsyncParent,
-                          public VsyncObserver
+                          public gfx::VsyncObserver
 {
   friend class mozilla::ipc::BackgroundParentImpl;
 
+  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(VsyncParent, override)
 private:
-  static already_AddRefed<VsyncParent> Create();
+  static already_AddRefed<VsyncParent> Create(const nsID& aSourceID);
 
   VsyncParent();
   virtual ~VsyncParent();
 
-  virtual bool NotifyVsync(TimeStamp aTimeStamp) override;
-  virtual bool RecvRequestVsyncRate() override;
+  virtual void NotifyVsync(TimeStamp aTimeStamp) override;
+  virtual bool RecvRequestVsyncInterval() override;
 
   virtual bool RecvObserve() override;
   virtual bool RecvUnobserve() override;
@@ -47,7 +53,7 @@ private:
   bool mObservingVsync;
   bool mDestroyed;
   nsCOMPtr<nsIThread> mBackgroundThread;
-  RefPtr<RefreshTimerVsyncDispatcher> mVsyncDispatcher;
+  nsID mSourceID;
 };
 
 } // namespace layout
