@@ -74,7 +74,9 @@
 #ifdef MOZ_ENABLE_PROFILER_SPS
 #include "ProfilerMarkers.h"
 #endif
-#include "mozilla/VsyncDispatcher.h"
+
+extern PRLogModuleInfo *gVsyncLog;
+#define VSYNC_LOG(...)  MOZ_LOG(gVsyncLog, mozilla::LogLevel::Debug, (__VA_ARGS__))
 
 #ifdef MOZ_WIDGET_GONK
 #include "GeckoTouchDispatcher.h"
@@ -287,14 +289,13 @@ CompositorVsyncScheduler::Observer::~Observer()
   MOZ_ASSERT(!mOwner);
 }
 
-bool
+void
 CompositorVsyncScheduler::Observer::NotifyVsync(TimeStamp aVsyncTimestamp)
 {
   MutexAutoLock lock(mMutex);
-  if (!mOwner) {
-    return false;
+  if (mOwner) {
+    mOwner->NotifyVsync(aVsyncTimestamp);
   }
-  return mOwner->NotifyVsync(aVsyncTimestamp);
 }
 
 void
@@ -325,7 +326,7 @@ CompositorVsyncScheduler::CompositorVsyncScheduler(CompositorParent* aCompositor
   MOZ_ASSERT(NS_IsMainThread());
   MOZ_ASSERT(aWidget != nullptr);
   mVsyncObserver = new Observer(this);
-  mCompositorVsyncDispatcher = aWidget->GetCompositorVsyncDispatcher();
+  VSYNC_LOG("CompositorParent %p VsyncScheduler %p created observer %p", aCompositorParent, this, mVsyncObserver.get());
 #ifdef MOZ_WIDGET_GONK
   GeckoTouchDispatcher::GetInstance()->SetCompositorVsyncScheduler(this);
 
@@ -345,9 +346,7 @@ CompositorVsyncScheduler::~CompositorVsyncScheduler()
 {
   MOZ_ASSERT(!mIsObservingVsync);
   MOZ_ASSERT(!mVsyncObserver);
-  // The CompositorVsyncDispatcher is cleaned up before this in the nsBaseWidget, which stops vsync listeners
   mCompositorParent = nullptr;
-  mCompositorVsyncDispatcher = nullptr;
 }
 
 #ifdef MOZ_WIDGET_GONK
@@ -401,15 +400,16 @@ CompositorVsyncScheduler::CancelSetDisplayTask()
 void
 CompositorVsyncScheduler::Destroy()
 {
+  VSYNC_LOG("VsyncScheduler %p Destroy\n", this);
   MOZ_ASSERT(CompositorParent::IsInCompositorThread());
   UnobserveVsync();
-  mVsyncObserver->Destroy();
-  mVsyncObserver = nullptr;
+  if (mVsyncObserver) {
+    mVsyncObserver->Destroy();
+    mVsyncObserver = nullptr;
+  }
 
-#ifdef MOZ_WIDGET_GONK
-#if ANDROID_VERSION >= 19
+#if defined(MOZ_WIDGET_GONK) && ANDROID_VERSION >= 19
   CancelSetDisplayTask();
-#endif
 #endif
   CancelCurrentSetNeedsCompositeTask();
   CancelCurrentCompositeTask();
@@ -588,16 +588,14 @@ CompositorVsyncScheduler::NeedsComposite()
 void
 CompositorVsyncScheduler::ObserveVsync()
 {
-  MOZ_ASSERT(CompositorParent::IsInCompositorThread());
-  mCompositorVsyncDispatcher->SetCompositorVsyncObserver(mVsyncObserver);
+  mCompositorParent->GetWidget()->AddVsyncObserver(mVsyncObserver);
   mIsObservingVsync = true;
 }
 
 void
 CompositorVsyncScheduler::UnobserveVsync()
 {
-  MOZ_ASSERT(CompositorParent::IsInCompositorThread());
-  mCompositorVsyncDispatcher->SetCompositorVsyncObserver(nullptr);
+  mCompositorParent->GetWidget()->RemoveVsyncObserver(mVsyncObserver);
   mIsObservingVsync = false;
 }
 
@@ -770,7 +768,10 @@ CompositorParent::Destroy()
     sIndirectLayerTrees.erase(mRootLayerTreeID);
   }
 
-  mCompositorScheduler->Destroy();
+  if (mCompositorScheduler) {
+    mCompositorScheduler->Destroy();
+    mCompositorScheduler = nullptr;
+  }
 }
 
 void
