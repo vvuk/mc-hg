@@ -12,6 +12,7 @@
 #include "gfxPlatform.h"
 #include "gfxDrawable.h"
 #include "imgIEncoder.h"
+#include "mozilla/unused.h"
 #include "mozilla/DebugOnly.h"
 #include "mozilla/Base64.h"
 #include "mozilla/dom/ImageEncoder.h"

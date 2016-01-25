@@ -4,6 +4,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+// only show C4509 "nonstandard extension used: 'gfxWindowsPlatform::InitD3D11Devices' uses SEH and 'adapter' has destructor" once
+#pragma warning(once: 4509)
+
 #include "gfxWindowsPlatform.h"
 
 #include "cairo.h"
