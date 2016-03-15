@@ -1577,6 +1577,9 @@ nsBaseWidget::DestroyVsync()
     mIncomingVsyncObserver->Destroy();
     mIncomingVsyncObserver = nullptr;
   }
+
+  // break cycle
+  mRefreshDriverTimer = nullptr;
 }
 
 void nsBaseWidget::CreateCompositor(int aWidth, int aHeight)

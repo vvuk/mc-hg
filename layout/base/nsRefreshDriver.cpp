@@ -120,14 +120,14 @@ namespace mozilla {
  * is called at the start of the Tick() implementation to set a time
  * for the next tick.
  */
-class RefreshDriverTimer {
+class RefreshDriverTimer
+  : public RefreshDriverTimerBase
+{
 public:
   enum RefreshDriverTimerType {
     eTimerUnknown = 0,
     eTimerWidgetVsync = 1,
   };
-
-  NS_INLINE_DECL_PURE_VIRTUAL_REFCOUNTING
 
 public:
   RefreshDriverTimer()
@@ -192,26 +192,6 @@ public:
 
   TimeStamp MostRecentRefresh() const { return mLastFireTime; }
   int64_t MostRecentRefreshEpochTime() const { return mLastFireEpoch; }
-
-  void SwapRefreshDrivers(RefreshDriverTimer* aNewTimer)
-  {
-    MOZ_ASSERT(NS_IsMainThread());
-
-    for (nsRefreshDriver* driver : mContentRefreshDrivers) {
-      aNewTimer->AddRefreshDriver(driver);
-      driver->mActiveTimer = aNewTimer;
-    }
-    mContentRefreshDrivers.Clear();
-
-    for (nsRefreshDriver* driver : mRootRefreshDrivers) {
-      aNewTimer->AddRefreshDriver(driver);
-      driver->mActiveTimer = aNewTimer;
-    }
-    mRootRefreshDrivers.Clear();
-
-    aNewTimer->mLastFireEpoch = mLastFireEpoch;
-    aNewTimer->mLastFireTime = mLastFireTime;
-  }
 
   virtual void Destroy() { }
 
@@ -851,32 +831,6 @@ nsRefreshDriver::GetRefreshTimerInterval() const
   return mThrottled ? GetThrottledTimerInterval() : GetRegularTimerInterval();
 }
 
-already_AddRefed<RefreshDriverTimer>
-nsRefreshDriver::ChooseTimer() const
-{
-  if (mThrottled) {
-    return do_AddRef(sThrottledRateTimer.get());
-  }
-
-  nsIWidget *w = mPresContext->GetRootWidget();
-  if (w) {
-    // don't recreate if we already have a timer for the same widget
-    if (mActiveTimer && mActiveTimer->GetType() == RefreshDriverTimer::eTimerWidgetVsync) {
-      WidgetVsyncRefreshDriverTimer *t = static_cast<WidgetVsyncRefreshDriverTimer*>(mActiveTimer.get());
-      if (t->GetWidget() == w) {
-        return do_AddRef(mActiveTimer.get());
-      }
-    }
-
-    RefPtr<WidgetVsyncRefreshDriverTimer> vsyncTimer = new WidgetVsyncRefreshDriverTimer(w);
-    return vsyncTimer.forget();
-  }
-
-  // No widget means it's not being displayed, so vsync doesn't matter,
-  // and we'll just use the throttled timer anyway.
-  return do_AddRef(sThrottledRateTimer.get());
-}
-
 nsRefreshDriver::nsRefreshDriver(nsPresContext* aPresContext)
   : mActiveTimer(nullptr),
     mReflowCause(nullptr),
@@ -914,7 +868,11 @@ nsRefreshDriver::~nsRefreshDriver()
 {
   MOZ_ASSERT(ObserverCount() == 0,
              "observers should have unregistered");
-  MOZ_ASSERT(!mActiveTimer, "timer should be gone");
+
+  if (mActiveTimer) {
+    mActiveTimer->RemoveRefreshDriver(this);
+    mActiveTimer = nullptr;
+  }
 
   if (mRootRefresh) {
     mRootRefresh->RemoveRefreshObserver(this, Flush_Style);
@@ -1075,14 +1033,25 @@ nsRefreshDriver::EnsureTimerStarted(EnsureTimerStartedFlags aFlags)
     }
   }
 
-  // We got here because we're either adjusting the time *or* we're
-  // starting it for the first time.  Add to the right timer,
-  // prehaps removing it from a previously-set one.
-  RefPtr<RefreshDriverTimer> newTimer = ChooseTimer();
-  if (newTimer != mActiveTimer) {
-    if (mActiveTimer)
+  nsIWidget *w = mPresContext->GetRootWidget();
+  RefPtr<RefreshDriverTimer> targetTimer = nullptr;
+  if (w) {
+    targetTimer = static_cast<RefreshDriverTimer*>(w->GetRefreshDriverTimer());
+    if (!targetTimer) {
+      targetTimer = new WidgetVsyncRefreshDriverTimer(w);
+      w->SetRefreshDriverTimer(targetTimer);
+    }
+  } else {
+    // no widget, so just use the throttled timer
+    targetTimer = sThrottledRateTimer;
+  }
+
+  if (targetTimer != mActiveTimer) {
+    if (mActiveTimer) {
       mActiveTimer->RemoveRefreshDriver(this);
-    mActiveTimer = newTimer;
+    }
+
+    mActiveTimer = targetTimer;
     mActiveTimer->AddRefreshDriver(this);
   }
 
@@ -1117,11 +1086,10 @@ nsRefreshDriver::EnsureTimerStarted(EnsureTimerStartedFlags aFlags)
 void
 nsRefreshDriver::StopTimer()
 {
-  if (!mActiveTimer)
-    return;
-
-  mActiveTimer->RemoveRefreshDriver(this);
-  mActiveTimer = nullptr;
+  if (mActiveTimer) {
+    mActiveTimer->RemoveRefreshDriver(this);
+    mActiveTimer = nullptr;
+  }
 
   if (mRequestedHighPrecision) {
     SetHighPrecisionTimersEnabled(false);

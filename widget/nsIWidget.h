@@ -31,6 +31,7 @@
 #include "nsIWidgetListener.h"
 #include "FrameMetrics.h"
 #include "Units.h"
+#include "RefreshDriverTimerBase.h"
 
 // forward declarations
 class   nsIRollupListener;
@@ -57,6 +58,9 @@ class LayerManagerComposite;
 class PLayerTransactionChild;
 struct ScrollableLayerGuid;
 } // namespace layers
+namespace layout {
+class RefreshDriverTimerBase;
+} // namespace layout
 namespace gfx {
 class DrawTarget;
 class SourceSurface;
@@ -565,6 +569,9 @@ class nsIWidget : public nsISupports {
      */
     virtual void AddVsyncObserver(mozilla::gfx::VsyncObserver *aObserver) { }
     virtual void RemoveVsyncObserver(mozilla::gfx::VsyncObserver *aObserver) { }
+
+    virtual mozilla::layout::RefreshDriverTimerBase* GetRefreshDriverTimer() { return mRefreshDriverTimer; }
+    virtual void SetRefreshDriverTimer(mozilla::layout::RefreshDriverTimerBase* aTimer) { mRefreshDriverTimer = aTimer; }
 
     /**
      * Return the nsID for the source that this widget is observing vsync from.
@@ -2109,6 +2116,8 @@ protected:
     bool mOnDestroyCalled;
     nsWindowType mWindowType;
     int32_t mZIndex;
+
+    RefPtr<mozilla::layout::RefreshDriverTimerBase> mRefreshDriverTimer;
 };
 
 NS_DEFINE_STATIC_IID_ACCESSOR(nsIWidget, NS_IWIDGET_IID)

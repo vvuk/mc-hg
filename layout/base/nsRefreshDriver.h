@@ -26,6 +26,7 @@
 #include "mozilla/Maybe.h"
 #include "GeckoProfiler.h"
 #include "mozilla/layers/TransactionIdAllocator.h"
+#include "RefreshDriverTimerBase.h"
 
 class nsPresContext;
 class nsIPresShell;
@@ -324,6 +325,7 @@ public:
   NS_IMETHOD_(MozExternalRefCountType) AddRef(void) override { return TransactionIdAllocator::AddRef(); }
   NS_IMETHOD_(MozExternalRefCountType) Release(void) override { return TransactionIdAllocator::Release(); }
   virtual void WillRefresh(mozilla::TimeStamp aTime) override;
+
 private:
   typedef nsTObserverArray<nsARefreshObserver*> ObserverArray;
   typedef nsTHashtable<nsISupportsHashKey> RequestTable;
@@ -370,7 +372,6 @@ private:
 
   void FinishedWaitingForTransaction();
 
-  already_AddRefed<mozilla::RefreshDriverTimer> ChooseTimer() const;
   RefPtr<mozilla::RefreshDriverTimer> mActiveTimer;
 
   ProfilerBacktrace* mReflowCause;
