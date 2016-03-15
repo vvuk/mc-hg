@@ -235,8 +235,8 @@ FromFovPort(const ovrFovPort& aFOV)
 HMDInfoOculus::HMDInfoOculus(ovrSession aSession)
   : VRHMDInfo(VRHMDType::Oculus, false)
   , mSession(aSession)
-  , mInputFrameID(0)
   , mPerfHudMode(0)
+  , mInputFrameID(0)
 {
   MOZ_ASSERT(XRE_IsParentProcess(),
              "Can only create HMDInfoOculus in XRE parent process!");
