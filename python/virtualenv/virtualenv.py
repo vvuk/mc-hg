@@ -53,7 +53,8 @@ py_version = 'python%s.%s' % (sys.version_info[0], sys.version_info[1])
 
 is_jython = sys.platform.startswith('java')
 is_pypy = hasattr(sys, 'pypy_version_info')
-is_win = (sys.platform == 'win32')
+is_win = (sys.platform == 'win32' and os.sep == '\\')
+is_msys2 = (sys.platform == 'win32' and os.sep == '/')
 is_cygwin = (sys.platform == 'cygwin')
 is_darwin = (sys.platform == 'darwin')
 abiflags = getattr(sys, 'abiflags', '')
@@ -130,6 +131,8 @@ if majver == 2:
         REQUIRED_MODULES.extend(['warnings', 'linecache', '_abcoll', 'abc'])
     if minver >= 7:
         REQUIRED_MODULES.extend(['_weakrefset'])
+    if is_msys2:
+        REQUIRED_MODULES.extend(['functools'])
 elif majver == 3:
     # Some extra modules are needed for Python 3, but different ones
     # for different versions.
@@ -916,6 +919,9 @@ def create_environment(home_dir, site_packages=False, clear=False,
     """
     home_dir, lib_dir, inc_dir, bin_dir = path_locations(home_dir)
 
+    # force symlink to false if we don't have symlinks
+    if not hasattr(os, 'symlink'): symlink = False
+
     py_executable = os.path.abspath(install_python(
         home_dir, lib_dir, inc_dir, bin_dir,
         site_packages=site_packages, clear=clear, symlink=symlink))
@@ -978,7 +984,7 @@ def path_locations(home_dir):
         lib_dir = join(home_dir, 'Lib')
         inc_dir = join(home_dir, 'Include')
         bin_dir = join(home_dir, 'Scripts')
-    if is_jython:
+    elif is_jython:
         lib_dir = join(home_dir, 'Lib')
         inc_dir = join(home_dir, 'Include')
         bin_dir = join(home_dir, 'bin')
@@ -986,7 +992,7 @@ def path_locations(home_dir):
         lib_dir = home_dir
         inc_dir = join(home_dir, 'include')
         bin_dir = join(home_dir, 'bin')
-    elif not is_win:
+    else:
         lib_dir = join(home_dir, 'lib', py_version)
         inc_dir = join(home_dir, 'include', py_version + abiflags)
         bin_dir = join(home_dir, 'bin')
@@ -1181,6 +1187,14 @@ def install_python(home_dir, lib_dir, inc_dir, bin_dir, site_packages, clear, sy
             copyfile(src, join(home_dir, 'registry'), symlink=False)
         copyfile(join(prefix, 'cachedir'), join(home_dir, 'cachedir'),
                  symlink=False)
+
+    # For MSYS2, we need to create a sitecustomize that explicitly adds the core
+    # python runtime directory.  This is likely a bug in how this python is built.
+    if is_msys2:
+        site_customize = os.path.join(lib_dir, 'site-packages', 'sitecustomize.py')
+        content = ("import sys\n"
+                   "sys.path.append(\"%s\")" % os.path.dirname(os.__file__))
+        writefile(site_customize, content)
 
     mkdir(bin_dir)
     py_executable = join(bin_dir, os.path.basename(sys.executable))

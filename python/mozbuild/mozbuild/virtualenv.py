@@ -16,6 +16,9 @@ import warnings
 
 from distutils.version import LooseVersion
 
+is_win = (sys.platform == 'win32' and os.sep == '\\')
+is_msys2 = (sys.platform == 'win32' and os.sep == '/')
+is_cygwin = (sys.platform == 'cygwin')
 
 # Minimum version of Python required to build.
 MINIMUM_PYTHON_VERSION = LooseVersion('2.7.3')
@@ -72,7 +75,7 @@ class VirtualenvManager(object):
         # we have a bit of a chicken-and-egg problem and can't reliably
         # import virtualenv. The functionality is trivial, so just implement
         # it here.
-        if sys.platform in ('win32', 'cygwin'):
+        if is_cygwin or is_win:
             return os.path.join(self.virtualenv_root, 'Scripts')
 
         return os.path.join(self.virtualenv_root, 'bin')
@@ -388,8 +391,10 @@ class VirtualenvManager(object):
                 handle_package(package)
 
             sitecustomize = os.path.join(
-                os.path.dirname(os.__file__), 'sitecustomize.py')
-            with open(sitecustomize, 'w') as f:
+                os.path.dirname(os.__file__), 'site-packages', 'sitecustomize.py')
+            # Make sure to append here -- virtualenv creates a sitecustomize.py
+            # for MSYS2 to make sure python can find its standard libs
+            with open(sitecustomize, 'a') as f:
                 f.write(
                     '# Importing mach_bootstrap has the side effect of\n'
                     '# installing an import hook\n'
