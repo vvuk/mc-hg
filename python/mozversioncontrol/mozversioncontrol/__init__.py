@@ -8,8 +8,14 @@ import os
 import re
 import subprocess
 import which
+from StringIO import StringIO
 
 from distutils.version import LooseVersion
+
+from mach.mixin.process import ProcessExecutionMixin
+
+pex = ProcessExecutionMixin()
+pex.populate_logger()
 
 def get_hg_path():
     """Obtain the path of the Mercurial client."""
@@ -37,7 +43,17 @@ def get_hg_version(hg):
     env = os.environ.copy()
     env[b'HGPLAIN'] = b'1'
 
-    info = subprocess.check_output([hg, '--version'], env=env)
+    # XXX -- there's got to be a better way to do this
+    # run_process should probably get a return_output or something too
+    infoio = StringIO()
+    def infoHandler(l): infoio.write(l)
+    pex.run_process([hg, '--version'],
+                    explicit_env=env,
+                    require_unix_environment=True,
+                    line_handler=infoHandler)
+    info = infoio.getvalue()
+    infoio.close()
+
     match = re.search('version ([^\+\)]+)', info)
     if not match:
         raise Exception('Unable to identify Mercurial version.')

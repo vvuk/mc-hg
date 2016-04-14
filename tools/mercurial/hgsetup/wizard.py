@@ -19,6 +19,7 @@ from configobj import ConfigObjError
 from StringIO import StringIO
 
 from mozversioncontrol import get_hg_path, get_hg_version
+from mach.mixin.process import ProcessExecutionMixin
 
 from .update import MercurialUpdater
 from .config import (
@@ -297,7 +298,7 @@ version-control-tools repository:
 '''.lstrip()
 
 
-class MercurialSetupWizard(object):
+class MercurialSetupWizard(ProcessExecutionMixin):
     """Command-line wizard to help users configure Mercurial."""
 
     def __init__(self, state_dir):
@@ -307,6 +308,7 @@ class MercurialSetupWizard(object):
         self.ext_dir = os.path.join(self.state_dir, 'mercurial', 'extensions')
         self.vcs_tools_dir = os.path.join(self.state_dir, 'version-control-tools')
         self.updater = MercurialUpdater(state_dir)
+        self.populate_logger(name="MercurialSetupWizard")
 
     def run(self, config_paths):
         try:
@@ -600,11 +602,15 @@ class MercurialSetupWizard(object):
         # Load extension to hg and search stdout for printed exceptions
         if not path:
             path = os.path.join(self.vcs_tools_dir, 'hgext', name)
-        result = subprocess.check_output(['hg',
-             '--config', 'extensions.testmodule=%s' % path,
-             '--config', 'ui.traceback=true'],
-            stderr=subprocess.STDOUT)
-        return b"Traceback" not in result
+        try:
+            self.run_process(['hg',
+                              '--config', 'extensions.testmodule=%s' % path,
+                              '--config', 'ui.traceback=true'],
+                             require_unix_environment=True,
+                             require_exit_code=0)
+        except:
+            return False
+        return True
 
     def prompt_external_extension(self, c, name, prompt_text, path=None):
         # Ask the user if the specified extension should be enabled. Defaults

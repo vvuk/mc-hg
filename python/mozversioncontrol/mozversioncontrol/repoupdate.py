@@ -7,6 +7,8 @@ from __future__ import unicode_literals
 import os
 import subprocess
 
+from . import pex
+
 # The logic here is far from robust. Improvements are welcome.
 
 def update_mercurial_repo(hg, repo, path, revision='default',
@@ -23,18 +25,18 @@ def update_mercurial_repo(hg, repo, path, revision='default',
             fingerprint)])
 
     if os.path.exists(path):
-        subprocess.check_call(args + ['pull', repo], cwd=path)
+        pex.run_process(args + ['pull', repo], cwd=path, require_unix_environment=True)
     else:
-        subprocess.check_call(args + ['clone', repo, path])
+        pex.run_process(args + ['clone', repo, path], require_unix_environment=True)
 
-    subprocess.check_call([hg, 'update', '-r', revision], cwd=path)
+    pex.run_process([hg, 'update', '-r', revision], cwd=path, require_unix_environment=True)
 
 
 def update_git_repo(git, repo, path, revision='origin/master'):
     """Ensure a Git repository exists at a path and is up to date."""
     if os.path.exists(path):
-        subprocess.check_call([git, 'fetch', '--all'], cwd=path)
+        pex.run_process([git, 'fetch', '--all'], cwd=path, require_unix_environment=True)
     else:
-        subprocess.check_call([git, 'clone', repo, path])
+        pex.run_process([git, 'clone', repo, path], require_unix_environment=True)
 
-    subprocess.check_call([git, 'checkout', revision], cwd=path)
+    pex.run_process([git, 'checkout', revision], cwd=path, require_unix_environment=True)
