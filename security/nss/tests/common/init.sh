@@ -287,7 +287,7 @@ if [ -z "${INIT_SOURCED}" -o "${INIT_SOURCED}" != "TRUE" ]; then
     if [ "${DLL_SUFFIX}" = "" ]; then
         DLL_SUFFIX=`(cd $COMMON; $MAKE dll_suffix)`
     fi
-    OS_NAME=`uname -s | sed -e "s/-[0-9]*\.[0-9]*//" | sed -e "s/-WOW64//"`
+    OS_NAME=`uname -s | sed -e "s/-[0-9]*\.[0-9]*//" | sed -e "s/-WOW64//" | sed -e "s/MINGW64_NT/MINGW32_NT/"`
 
     BINDIR="${DIST}/${OBJDIR}/bin"
 

@@ -7,7 +7,7 @@
 # Master "Core Components" macros for getting the OS architecture     #
 # defines these symbols:
 # 64BIT_TAG
-# OS_ARCH	(from uname -r)
+# OS_ARCH	(from uname -s)
 # OS_TEST	(from uname -m)
 # OS_RELEASE	(from uname -v and/or -r)
 # OS_TARGET	User defined, or set to OS_ARCH
@@ -206,11 +206,11 @@ ifeq (CYGWIN_NT,$(findstring CYGWIN_NT,$(OS_ARCH)))
     endif
 endif
 #
-# If uname -s returns "MINGW32_NT-*", we assume that we are using
-# the uname.exe in the MSYS toolkit.
+# If uname -s returns "MINGW{32,64}_NT-*", we assume that we are using
+# the uname.exe in MSYS/MSYS2.
 #
-ifeq (MINGW32_NT,$(findstring MINGW32_NT,$(OS_ARCH)))
-    OS_RELEASE := $(patsubst MINGW32_NT-%,%,$(OS_ARCH))
+ifeq (,$(filter-out MINGW32_NT-% MINGW64_NT-%,$(OS_ARCH)))
+    OS_RELEASE := $(subst MINGW32_NT-,,$(subst MINGW64_NT-,,$(OS_ARCH)))
     OS_ARCH = WINNT
     USE_MSYS = 1
     ifndef CPU_ARCH
